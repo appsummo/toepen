@@ -85,6 +85,11 @@ cd web && npm install && npm run dev
 
 ## Deploy to a server
 
+> Already deployed at **https://toepen.appninja.info**. For the live setup —
+> updating it, rolling back, backups, TLS and troubleshooting — see the runbook
+> in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md). The rest of this section
+> describes the two shapes in general.
+
 `docker-compose.prod.yml` covers two shapes. Unlike `docker-compose.yml` (local
 development, HTTP, default passwords) it has **no default credentials** and does
 not publish Postgres. Every value comes from `.env`.
@@ -217,6 +222,8 @@ cd server && npm test        # game-engine unit tests (node:test)
 ## Layout
 
 ```
+docs/DEPLOYMENT.md     runbook for the live deployment
+deploy/                nginx + Caddy config for production
 db/init.sql            schema (games, players, chat_messages)
 server/src/engine/     pure, deterministic game engine (+ tests)
 server/src/game/       room manager, per-player views, broadcast
