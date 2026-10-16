@@ -1,13 +1,23 @@
-# Production stack: Caddy terminates TLS and proxies to nginx, which serves the
-# SPA and forwards /api and /ws to the game server.
+# Production stack. Two shapes, one file:
 #
-#   caddy :80/:443  ->  web (nginx :80)  ->  server :3001  ->  db :5432
+# A. Host already runs a web server (our case: nginx serving other-site.example).
+#    The stack binds nothing public; the host's nginx proxies to it.
+#
+#      host nginx :443  ->  127.0.0.1:8080 (web)  ->  server :3001  ->  db :5432
+#      docker compose -f docker-compose.prod.yml up -d --build
+#
+# B. Dedicated box with ports 80/443 free. Caddy fronts it and gets a Let's
+#    Encrypt certificate automatically.
+#
+#      caddy :80/:443  ->  web  ->  server :3001  ->  db :5432
+#      docker compose -f docker-compose.prod.yml --profile caddy up -d --build
+#
+# Caddy only starts when its profile is named, so on a shared host it can never
+# steal :80/:443 from whatever is already serving there.
 #
 # Unlike docker-compose.yml (local development) nothing here has a default
 # credential and the database is not reachable from outside the compose network.
 # Every value comes from .env - see .env.example.
-#
-#   docker compose -f docker-compose.prod.yml up -d --build
 
 services:
   db:
@@ -42,9 +52,10 @@ services:
       # Players reach the API same-origin through nginx, so this stays empty
       # unless another origin genuinely needs access.
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-      # Client IPs arrive through caddy -> nginx; trust exactly those two hops
-      # so rate limiting keys on the real address and no further.
-      TRUST_PROXY_HOPS: '2'
+      # Number of proxies in front of the server, so rate limiting keys on the
+      # real client IP and no further. 1 = host nginx only (shape A),
+      # 2 = caddy -> nginx (shape B).
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
     depends_on:
       db:
         condition: service_healthy
@@ -54,16 +65,25 @@ services:
   web:
     build: ./web
     container_name: toepen-web
+    ports:
+      # Bound to loopback only: reachable by the host's nginx (shape A) and by
+      # caddy over the compose network (shape B), never from the internet.
+      - '127.0.0.1:${WEB_BIND_PORT:-8080}:80'
     depends_on:
       - server
     restart: unless-stopped
 
+  # Only started with `--profile caddy` (shape B above).
   caddy:
     image: caddy:2-alpine
     container_name: toepen-caddy
+    profiles: ['caddy']
     environment:
-      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+      # Required only for this profile. Compose interpolates every service's
+      # variables even when the profile is inactive, so these cannot use the
+      # `:?` guard or they would block shape A, which needs neither.
+      DOMAIN: ${DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
       - '80:80'
       - '443:443'

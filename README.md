@@ -85,23 +85,61 @@ cd web && npm install && npm run dev
 
 ## Deploy to a server
 
-The production stack adds Caddy in front, which obtains and renews a Let's
-Encrypt certificate automatically — that is what gives the site `https://` and
-`wss://` without any manual certificate work.
+`docker-compose.prod.yml` covers two shapes. Unlike `docker-compose.yml` (local
+development, HTTP, default passwords) it has **no default credentials** and does
+not publish Postgres. Every value comes from `.env`.
+
+### A. The host already serves something else
+
+This is the common case — a VPS that is already running a site. The stack binds
+only to loopback and the host's own nginx proxies to it, so nothing competes for
+ports 80/443 and the existing sites are untouched.
+
+```
+host nginx :443  →  127.0.0.1:8080 (web)  →  server :3001  →  db :5432
+```
+
+Install the two nginx pieces, which are additive and change no existing site:
+
+```bash
+scp deploy/nginx-map-upgrade.conf root@HOST:/etc/nginx/conf.d/map-upgrade.conf
+scp deploy/nginx-site.conf root@HOST:/etc/nginx/sites-available/toepen
+ssh root@HOST 'sed -i s/TOEPEN_DOMAIN/your.domain/ /etc/nginx/sites-available/toepen \
+  && ln -sf /etc/nginx/sites-available/toepen /etc/nginx/sites-enabled/toepen \
+  && nginx -t && systemctl reload nginx \
+  && certbot --nginx -d your.domain'
+```
+
+Then start the stack (no `--profile`, so Caddy never runs):
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### B. A dedicated box with ports 80 and 443 free
+
+Caddy fronts the stack and obtains and renews a Let's Encrypt certificate on its
+own, giving `https://` and `wss://` with no manual certificate work.
 
 ```
 caddy :80/:443  →  web (nginx :80)  →  server :3001  →  db :5432
 ```
 
-Unlike `docker-compose.yml` (local development, HTTP, default passwords), the
-production file has **no default credentials** and does not publish Postgres to
-the host. Every value comes from `.env`.
+Set `DOMAIN`, `ACME_EMAIL` and `TRUST_PROXY_HOPS=2` in `.env`, then:
 
-**1. Point DNS at the host.** Create an `A` record for your domain aimed at the
-server's public IP, and open ports 80 and 443. Caddy cannot complete the ACME
-challenge until the domain resolves to this machine.
+```bash
+docker compose -f docker-compose.prod.yml --profile caddy up -d --build
+```
 
-**2. Configure secrets** on the server:
+Point an `A` record at the host and open 80/443 first — Caddy cannot complete
+the ACME challenge until the domain resolves here.
+
+### Configuration
+
+**Point DNS at the host** (both shapes): an `A` record for your domain aimed at
+the server's public IP.
+
+**Configure secrets** on the server:
 
 ```bash
 cp .env.example .env
@@ -115,16 +153,9 @@ Generate these **on the server**; never commit `.env` (it is git-ignored).
 and changing it later logs everyone out. The server refuses to start in
 production without it.
 
-**3. Bring it up:**
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml logs -f caddy   # watch the cert issue
-```
-
-The site is then live at `https://<DOMAIN>`. The schema is created on first
-start by `db/init.sql`, and `server/src/db/migrate.ts` runs idempotent
-migrations on every boot, so deploys need no manual database step.
+The schema is created on first start by `db/init.sql`, and
+`server/src/db/migrate.ts` runs idempotent migrations on every boot, so deploys
+need no manual database step.
 
 **Update to a new version:**
 
@@ -144,14 +175,15 @@ docker compose -f docker-compose.prod.yml exec -T db \
 
 ### What is hardened
 
-- TLS with automatic renewal; HSTS, `nosniff` and referrer policy headers.
+- TLS with automatic renewal (Caddy in shape B, certbot in shape A); HSTS,
+  `nosniff` and referrer policy headers.
 - Rate limits: 300 req/min across the API, 20 failed logins per 15 min, 30 new
-  tables per 10 min. The server trusts exactly two proxy hops so limits key on
-  the real client IP.
+  tables per 10 min. The server trusts exactly `TRUST_PROXY_HOPS` proxies so
+  limits key on the real client IP.
 - CORS is same-origin by default; add extra origins to `CORS_ORIGINS` only if
   something outside the site needs the API.
-- Postgres is not reachable from outside the compose network, and the server
-  container runs as a non-root user.
+- Postgres is not reachable from outside the compose network, the web container
+  binds to loopback only, and the server container runs as a non-root user.
 - Images build from committed lockfiles (`npm ci`), so a rebuild ships exactly
   the versions that were tested.
 
