@@ -100,7 +100,7 @@ export function GameScreen({ route, navigation }: RootScreenProps<'Game'>) {
               </View>
             )}
             {game.leadSuit && trick.length > 0 && (
-              <Text style={styles.trickCounter}>Slag {(game.trickNumber ?? 0) + 1} van 4</Text>
+              <Text style={styles.trickCounter}>Slag {(game.trickNumber ?? 0) + 1} van {game.handSize ?? 4}</Text>
             )}
           </View>
         </View>

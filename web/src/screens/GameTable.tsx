@@ -66,19 +66,25 @@ function statusOf(game: GameView, p: ViewPlayer): { text: string; tone: 'knock' 
  */
 function PlayedPile({ cards, size = 'sm' }: { cards: ShownCard[]; size?: 'sm' | 'md' }) {
   if (cards.length === 0) return null;
+  const PER_ROW = 4;
+  const rows: ShownCard[][] = [];
+  for (let i = 0; i < cards.length; i += PER_ROW) rows.push(cards.slice(i, i + PER_ROW));
+
   return (
-    <div style={{ marginTop: 6 }}>
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        {cards.map((shown, i) => (
-          <div
-            key={`${shown.card.suit}${shown.card.rank}${i}`}
-            style={{ marginLeft: i === 0 ? 0 : -8 }}
-            title={`Slag ${shown.trick + 1}`}
-          >
-            <PlayingCard card={shown.card} size={size} />
-          </div>
-        ))}
-      </div>
+    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {rows.map((row, r) => (
+        <div key={r} style={{ display: 'flex', justifyContent: 'center' }}>
+          {row.map((shown, i) => (
+            <div
+              key={`${shown.card.suit}${shown.card.rank}${i}`}
+              style={{ marginLeft: i === 0 ? 0 : -8 }}
+              title={`Slag ${shown.trick + 1}`}
+            >
+              <PlayingCard card={shown.card} size={size} />
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -201,9 +207,11 @@ export function GameTable({ game, messages, identity, send }: Props) {
                   border: st.tone === 'turn' ? '1px solid var(--felt-line)' : '1px solid rgba(201,143,61,0.2)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>
                   {Array.from({ length: p.handCount }).map((_, i) => (
-                    <PlayingCard key={i} faceDown size="sm" />
+                    <div key={i} style={{ marginLeft: i === 0 ? 0 : -24 }}>
+                      <PlayingCard faceDown size="sm" />
+                    </div>
                   ))}
                   {p.handCount === 0 && <div style={{ height: 62 }} />}
                 </div>
@@ -223,11 +231,14 @@ export function GameTable({ game, messages, identity, send }: Props) {
         </div>
 
         {/* Center trick / felt */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        {/* minHeight 0 lets the felt give up space: a decider round deals eight
+            cards, and the taller hands and piles would otherwise push the
+            action buttons off the bottom of the screen. */}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div
             style={{
               width: 'min(70%, 520px)',
-              minHeight: 200,
+              minHeight: (game.handSize ?? 4) > 4 ? 130 : 200,
               borderRadius: '50% / 40%',
               background: 'radial-gradient(ellipse at 50% 42%, #3e6450, #243029)',
               border: '10px solid #7a4a24',
@@ -255,7 +266,7 @@ export function GameTable({ game, messages, identity, send }: Props) {
               </div>
             )}
             {game.leadSuit && trick.length > 0 && (
-              <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.6)' }}>Slag {(game.trickNumber ?? 0) + 1} van 4</div>
+              <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.6)' }}>Slag {(game.trickNumber ?? 0) + 1} van {game.handSize ?? 4}</div>
             )}
           </div>
 

@@ -102,6 +102,7 @@ export function buildView(
     ...base,
     phase: state.phase,
     round: state.round,
+    handSize: state.handSize ?? 4, // rounds dealt before deciders existed
     dealerSeat: state.dealerSeat,
     turnSeat: state.turnSeat,
     leadSuit: state.leadSuit,

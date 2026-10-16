@@ -93,6 +93,8 @@ export interface GameView {
   stake?: number;
   lastKnockerSeat?: number | null;
   pendingKnock?: PendingKnock | null;
+  /** Cards dealt each this round: four normally, eight in a decider. */
+  handSize?: number;
   /** Seats that claimed vuile was this round. A claim is shouted, so it is public. */
   wasClaimants?: number[];
   /** Claims that were checked, once resolved. Hidden while the window is open. */

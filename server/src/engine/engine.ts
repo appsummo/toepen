@@ -115,6 +115,7 @@ export function createEngine(seats: SeatInit[], opts: EngineOptions): EngineStat
     targetPoints: opts.targetPoints,
     dirtyLaundryEnabled: opts.dirtyLaundryEnabled,
     round: 0,
+    handSize: NORMAL_HAND,
     dealerSeat: players[0].seat,
     turnSeat: players[0].seat,
     leadSuit: null,
@@ -142,6 +143,27 @@ function countByRank(hand: Card[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const c of hand) m.set(c.rank, (m.get(c.rank) ?? 0) + 1);
   return m;
+}
+
+const NORMAL_HAND = 4;
+const DECIDER_HAND = 8;
+
+/**
+ * Everyone still in is one point from going out, so this round settles the
+ * game. Traditionally that is played with double hands - but only when the
+ * deck can actually cover them, which caps it at four players (8 x 4 = 32).
+ * If even one player is further back it is an ordinary round.
+ */
+function isDecider(state: EngineState, active: number[]): boolean {
+  return (
+    active.length > 1 &&
+    active.every((seat) => playerAt(state, seat).penalty >= state.targetPoints - 1)
+  );
+}
+
+function handSizeFor(state: EngineState, active: number[]): number {
+  if (!isDecider(state, active)) return NORMAL_HAND;
+  return DECIDER_HAND * active.length <= freshDeck().length ? DECIDER_HAND : NORMAL_HAND;
 }
 
 /** Deal a new round. dealerSeat is expected to already be set (winner deals). */
@@ -175,11 +197,12 @@ export function startRound(prev: EngineState, seed: number): EngineState {
   }
 
   const active = activeSeats(state);
+  state.handSize = handSizeFor(state, active);
   const deck = shuffle(freshDeck(), rng);
-  // Deal 4 cards each, one at a time, clockwise starting left of dealer.
+  // Deal one at a time, clockwise starting left of the dealer.
   let di = 0;
   const startSeat = nextActive(state, state.dealerSeat);
-  for (let round = 0; round < 4; round++) {
+  for (let round = 0; round < state.handSize; round++) {
     let seat = startSeat;
     for (let i = 0; i < active.length; i++) {
       playerAt(state, seat).hand.push(deck[di++]);
@@ -188,6 +211,12 @@ export function startRound(prev: EngineState, seed: number): EngineState {
   }
 
   log(state, { kind: 'deal', text: `Ronde ${state.round} gedeeld.` });
+  if (state.handSize !== NORMAL_HAND) {
+    log(state, {
+      kind: 'decider',
+      text: `Beslissende ronde — iedereen staat op ${state.targetPoints - 1}. ${state.handSize} kaarten ieder!`,
+    });
+  }
 
   // Instant win: four of a kind ("Toep").
   for (const seat of active) {
@@ -217,11 +246,18 @@ function beginPlay(state: EngineState): EngineState {
   const povertyExists = state.players.some(
     (p) => !p.eliminated && p.penalty >= state.targetPoints - 1,
   );
+  // Only players who are NOT themselves in poverty get the play/fold choice.
+  // With everyone on the brink there is nobody left to ask, and opening the
+  // phase anyway would hang the round: no player could act, and the turn timer
+  // would find nothing to time out and simply rearm forever.
+  const canDecide = state.players.some(
+    (p) => !p.eliminated && p.inRound && p.penalty < state.targetPoints - 1,
+  );
   state.turnSeat = nextActive(state, state.dealerSeat);
   if (!playerAt(state, state.turnSeat).inRound) {
     state.turnSeat = nextInRound(state, state.turnSeat);
   }
-  if (povertyExists) {
+  if (povertyExists && canDecide) {
     state.phase = 'poverty';
     log(state, { kind: 'poverty', text: 'Armoede! Beslis of je meespeelt.' });
   } else {
@@ -355,7 +391,7 @@ function resolveTrick(state: EngineState): EngineState {
     text: `${playerAt(state, winnerSeat).name} wint slag ${state.trickNumber + 1}.`,
   });
 
-  const isFinalTrick = state.trickNumber >= 3;
+  const isFinalTrick = state.trickNumber >= state.handSize - 1;
   if (isFinalTrick) {
     return finishRound(state, winnerSeat, winnerCard, {});
   }
@@ -444,11 +480,16 @@ function maybeResolveKnock(state: EngineState): EngineState {
 
 // ---- vuile was: claim, peek, resolve ------------------------------------
 
-/** A hand weak enough to throw away: four pictures, or three and a seven. */
+/**
+ * A hand weak enough to throw away: nothing but pictures, or all pictures bar
+ * one seven. Phrased against the hand's own length so it still means the same
+ * thing in a decider round dealt eight cards.
+ */
 export function hasDirtyLaundry(hand: Card[]): boolean {
+  if (hand.length === 0) return false;
   const pictures = hand.filter(isPicture).length;
   const sevens = hand.filter((c) => c.rank === '7').length;
-  return pictures === 4 || (pictures === 3 && sevens === 1);
+  return pictures === hand.length || (pictures === hand.length - 1 && sevens === 1);
 }
 
 /** Deal a fresh hand from what is left of the deck. */
@@ -457,7 +498,7 @@ function swapHand(state: EngineState, seat: number, seed: number): void {
   for (const pl of state.players) for (const c of pl.hand) used.add(cardId(c));
   for (const pc of state.currentTrick) used.add(cardId(pc.card));
   const remaining = shuffle(freshDeck().filter((c) => !used.has(cardId(c))), makeRng(seed));
-  playerAt(state, seat).hand = remaining.slice(0, 4);
+  playerAt(state, seat).hand = remaining.slice(0, state.handSize);
 }
 
 /** Seats that have claimed vuile was this round. Public: a claim is a shout. */

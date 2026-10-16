@@ -19,6 +19,7 @@ import {
   pendingChallengeSeats,
   claimantSeats,
   hasDirtyLaundry,
+  pendingPovertySeats,
   pendingKnockSeats,
   pendingPovertySeats,
 } from '../src/engine/engine.ts';
@@ -598,4 +599,113 @@ test('running out of time neither claims nor checks', () => {
   assert.equal(other.claims[0].outcome, 'unchallenged');
   assert.equal(other.players[0].penalty, 0);
   assert.equal(other.players[2].penalty, 0);
+});
+
+// ---- the decider round --------------------------------------------------
+
+/** Put everyone still in on the brink: one more loss and they are out. */
+function onTheBrink(names: string[], targetPoints = 15): EngineState {
+  const state = createEngine(
+    names.map((name, i) => ({ id: `p${i}`, seat: i, name, penalty: 0, eliminated: false })),
+    { targetPoints, dirtyLaundryEnabled: false },
+  );
+  for (const p of state.players) p.penalty = targetPoints - 1;
+  return state;
+}
+
+test('when everyone is on the brink the decider is dealt eight cards each', () => {
+  let state = onTheBrink(['A', 'B', 'C']);
+  state = startRound(state, 99);
+  assert.equal(state.handSize, 8);
+  for (const p of state.players) assert.equal(p.hand.length, 8);
+  assert.ok(state.log.some((e) => e.kind === 'decider'));
+});
+
+test('one player further back means an ordinary four-card round', () => {
+  let state = onTheBrink(['A', 'B', 'C']);
+  state.players[2].penalty = 3; // C has room to spare
+  state = startRound(state, 99);
+  assert.equal(state.handSize, 4);
+  for (const p of state.players) assert.equal(p.hand.length, 4);
+});
+
+test('a decider only doubles up while the deck can cover it', () => {
+  // Four players need all 32 cards; five would need 40, so they get four each.
+  let four = startRound(onTheBrink(['A', 'B', 'C', 'D']), 5);
+  assert.equal(four.handSize, 8);
+  assert.equal(four.players.reduce((n, p) => n + p.hand.length, 0), 32);
+
+  let five = startRound(onTheBrink(['A', 'B', 'C', 'D', 'E']), 5);
+  assert.equal(five.handSize, 4);
+});
+
+test('eliminated players are ignored when judging the brink', () => {
+  let state = onTheBrink(['A', 'B', 'C']);
+  // C is already out, so the two left are both on the brink: still a decider.
+  state.players[2].penalty = 15;
+  state.players[2].eliminated = true;
+  state = startRound(state, 99);
+  assert.equal(state.handSize, 8);
+  assert.equal(state.players[2].hand.length, 0);
+});
+
+test('a decider round runs all eight tricks and settles the game', () => {
+  let state = startRound(onTheBrink(['A', 'B']), 777);
+  assert.equal(state.phase, 'playing');
+  let tricks = 0;
+  let guard = 0;
+  while (state.phase === 'playing' && guard++ < 100) {
+    const seat = state.turnSeat;
+    const before = state.trickNumber;
+    state = playCard(state, seat, legalCards(state, seat)[0]);
+    if (state.trickNumber !== before) tricks++;
+  }
+  assert.equal(tricks, 7, 'seven completed tricks, then the eighth ends the round');
+  for (const p of state.players) assert.equal(p.played.length, 8);
+
+  // Everyone was one point from out, so losing this round ends the game.
+  assert.equal(state.phase, 'game_over');
+  assert.notEqual(state.gameWinnerSeat, null);
+  assert.equal(state.players.filter((p) => !p.eliminated).length, 1);
+});
+
+test('everyone on the brink does not stall the round in poverty', () => {
+  // Players already in poverty must play, so with everyone there nobody is
+  // left to make a decision - opening the phase would hang the round and the
+  // turn timer would find nothing to time out.
+  let state = startRound(onTheBrink(['A', 'B', 'C']), 99);
+  assert.equal(state.phase, 'playing');
+  assert.deepEqual(pendingPovertySeats(state), []);
+
+  // And one player further back still gets their say.
+  let mixed = onTheBrink(['A', 'B', 'C']);
+  mixed.players[2].penalty = 3;
+  mixed = startRound(mixed, 99);
+  assert.equal(mixed.phase, 'poverty');
+  assert.deepEqual(pendingPovertySeats(mixed), [2]);
+});
+
+test('a weak hand is judged against the hand it is in', () => {
+  const pictures4 = [
+    { suit: 'C', rank: 'J' }, { suit: 'D', rank: 'Q' },
+    { suit: 'H', rank: 'K' }, { suit: 'S', rank: 'A' },
+  ] as const;
+  assert.ok(hasDirtyLaundry([...pictures4]));
+  // The same four cards are not a weak *eight*-card hand.
+  assert.ok(!hasDirtyLaundry([
+    ...pictures4,
+    { suit: 'C', rank: '10' }, { suit: 'D', rank: '9' },
+    { suit: 'H', rank: '8' }, { suit: 'S', rank: '10' },
+  ]));
+  // Eight pictures is, and so is seven plus a single seven.
+  assert.ok(hasDirtyLaundry([
+    ...pictures4,
+    { suit: 'C', rank: 'Q' }, { suit: 'D', rank: 'K' },
+    { suit: 'H', rank: 'A' }, { suit: 'S', rank: 'J' },
+  ]));
+  assert.ok(hasDirtyLaundry([
+    ...pictures4,
+    { suit: 'C', rank: 'Q' }, { suit: 'D', rank: 'K' },
+    { suit: 'H', rank: 'A' }, { suit: 'S', rank: '7' },
+  ]));
 });

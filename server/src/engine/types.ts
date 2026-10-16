@@ -71,6 +71,8 @@ export interface EngineState {
   targetPoints: number;
   dirtyLaundryEnabled: boolean;
   round: number;
+  /** Cards dealt to each player this round: four normally, eight in a decider. */
+  handSize: number;
   dealerSeat: number;
   turnSeat: number;                 // whose action it is
   leadSuit: Suit | null;
