@@ -34,6 +34,10 @@ const STATEMENTS: string[] = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_results_user ON game_results(user_id, finished_at)`,
 
+  // Default target moved from 10 to 15. Only affects rows inserted without an
+  // explicit value - every existing game keeps the target it was created with.
+  `ALTER TABLE games ALTER COLUMN target_points SET DEFAULT 15`,
+
   // Guard against double-recording a finished game.
   `ALTER TABLE games ADD COLUMN IF NOT EXISTS results_recorded BOOLEAN NOT NULL DEFAULT FALSE`,
 ];

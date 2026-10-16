@@ -205,7 +205,7 @@ play, winner of the 4th trick wins the round. Plus:
   Escalating penalties (2, 3, …) with re-knocking, capped so no one is forced
   past the target on a single loss. You can't re-knock yourself twice in a row.
 - **Scoring & elimination** — losers take penalty points; reaching the target
-  (default 10) knocks you out. Last player standing wins.
+  (default 15) knocks you out. Last player standing wins.
 - **Winning with a Jack** — win the final trick with a Boer and shed a point.
 - **Four of a kind** — instant "Toep", everyone else takes 3.
 - **Poverty** (*armoede*) — at the target-minus-one brink, others choose to

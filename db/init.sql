@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS games (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code           TEXT UNIQUE NOT NULL,
   status         TEXT NOT NULL DEFAULT 'lobby',   -- lobby | playing | finished
-  target_points  INTEGER NOT NULL DEFAULT 10,
+  target_points  INTEGER NOT NULL DEFAULT 15,
   think_seconds  INTEGER NOT NULL DEFAULT 30,
   dirty_laundry  BOOLEAN NOT NULL DEFAULT TRUE,
   host_player_id UUID,

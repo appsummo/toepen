@@ -16,7 +16,7 @@ router.post('/games', createGameLimiter, optionalAuth, async (req: Request, res:
   const name = cleanName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Naam is verplicht' });
 
-  const targetPoints = Math.max(2, Math.min(20, Number(req.body?.targetPoints) || 10));
+  const targetPoints = Math.max(2, Math.min(20, Number(req.body?.targetPoints) || 15));
   const thinkSeconds = Math.max(10, Math.min(120, Number(req.body?.thinkSeconds) || 30));
   const dirtyLaundry = req.body?.dirtyLaundry !== false;
 

@@ -61,7 +61,7 @@ export function Landing() {
           <span style={{ color: 'var(--gold)' }}>nu met je vrienden online.</span>
         </h1>
         <p style={{ color: 'var(--parchment)', opacity: 0.8, fontSize: 18, maxWidth: 620, margin: '1rem 0 2rem', lineHeight: 1.5 }}>
-          Bluf, toep en vouw. Vier kaarten, tien punten, en één iemand haalt vanavond de volgende ronde.
+          Bluf, toep en vouw. Vier kaarten, vijftien punten, en één iemand haalt vanavond de volgende ronde.
         </p>
 
         {!mode && (
@@ -127,7 +127,7 @@ const inputStyle: React.CSSProperties = {
 
 function CreateForm({ onBack, onDone }: { onBack: () => void; onDone: (code: string, id: string) => void }) {
   const [name, setName] = useState('');
-  const [target, setTarget] = useState(10);
+  const [target, setTarget] = useState(15);
   const [think, setThink] = useState(30);
   const [dirty, setDirty] = useState(true);
   const [err, setErr] = useState<string | null>(null);

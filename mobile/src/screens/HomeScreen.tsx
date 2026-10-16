@@ -27,7 +27,7 @@ export function HomeScreen({ navigation }: TabScreenProps<'Home'>) {
   const { user } = useAuth();
   const name = user?.displayName ?? 'Speler';
 
-  const [target, setTarget] = useState(10);
+  const [target, setTarget] = useState(15);
   const [think, setThink] = useState(30);
   const [dirty, setDirty] = useState(true);
   const [code, setCode] = useState('');
