@@ -44,7 +44,10 @@ export interface YouView {
   legalCards: Card[];
   canKnock: boolean;
   canPlay: boolean;
-  canDirtyLaundry: boolean;
+  /** Anyone may claim vuile was, true hand or not — the bluff is the point. */
+  mustDeclareWas: boolean;
+  /** You may quietly check somebody's claim. Nobody sees whether you did. */
+  mustChallengeWas: boolean;
   mustRespondKnock: boolean;
   mustDecidePoverty: boolean;
 }
@@ -61,7 +64,15 @@ export interface LogEntry {
   text: string;
 }
 
-export type Phase = 'lobby' | 'poverty' | 'playing' | 'knock' | 'round_over' | 'game_over';
+export type Phase =
+  | 'lobby'
+  | 'declare'
+  | 'challenge'
+  | 'poverty'
+  | 'playing'
+  | 'knock'
+  | 'round_over'
+  | 'game_over';
 
 export interface GameView {
   id: string;
@@ -82,6 +93,10 @@ export interface GameView {
   stake?: number;
   lastKnockerSeat?: number | null;
   pendingKnock?: PendingKnock | null;
+  /** Seats that claimed vuile was this round. A claim is shouted, so it is public. */
+  wasClaimants?: number[];
+  /** Claims that were checked, once resolved. Hidden while the window is open. */
+  wasResults?: { seat: number; outcome: 'caught' | 'wrong' | 'unchallenged' | null; revealed: Card[] | null }[];
   /** Epoch ms when the players on the clock run out of time; null when nobody is. */
   turnDeadline?: number | null;
   /** The server's clock when this snapshot was built, for correcting skew. */

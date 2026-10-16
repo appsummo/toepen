@@ -84,8 +84,14 @@ export function attachWebSocket(server: Server): void {
               playerId,
               msg.decision === 'fold' ? 'fold' : 'play',
             ));
-          case 'dirtyLaundry':
-            return void (await mgr.handleDirtyLaundry(gameId, playerId));
+          case 'declareWas':
+            return void (await mgr.handleDeclareWas(gameId, playerId, Boolean(msg.declare)));
+          case 'challengeWas':
+            return void (await mgr.handleChallengeWas(
+              gameId,
+              playerId,
+              msg.target === null || msg.target === undefined ? null : Number(msg.target),
+            ));
           case 'nextRound':
             return void (await mgr.handleNextRound(gameId, playerId));
           default:

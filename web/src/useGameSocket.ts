@@ -10,7 +10,8 @@ type Outgoing =
   | { type: 'knock' }
   | { type: 'respond'; response: 'call' | 'fold' }
   | { type: 'poverty'; decision: 'play' | 'fold' }
-  | { type: 'dirtyLaundry' }
+  | { type: 'declareWas'; declare: boolean }
+  | { type: 'challengeWas'; target: number | null }
   | { type: 'nextRound' };
 
 export interface SocketApi {

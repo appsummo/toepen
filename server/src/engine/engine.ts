@@ -126,6 +126,9 @@ export function createEngine(seats: SeatInit[], opts: EngineOptions): EngineStat
     pendingKnock: null,
     players,
     povertyDecisions: {},
+    claims: [],
+    declareDecisions: {},
+    challengeDecisions: {},
     log: [],
     turnDeadline: null,
     winnerSeat: null,
@@ -156,6 +159,9 @@ export function startRound(prev: EngineState, seed: number): EngineState {
   state.lastKnockerSeat = null;
   state.pendingKnock = null;
   state.povertyDecisions = {};
+  state.claims = [];
+  state.declareDecisions = {};
+  state.challengeDecisions = {};
   state.winnerSeat = null;
 
   // Reset per-round player flags; eliminated players sit out.
@@ -195,11 +201,26 @@ export function startRound(prev: EngineState, seed: number): EngineState {
     }
   }
 
-  // Poverty: any in-game player at target-1 triggers a play/fold decision phase.
+  // With vuile was in play, everyone gets a window to claim a weak hand before
+  // a card is led. Bluffing is allowed, so the window is open to everybody.
+  if (state.dirtyLaundryEnabled) {
+    state.phase = 'declare';
+    for (const seat of active) state.declareDecisions[seat] = null;
+    log(state, { kind: 'declare', text: 'Vuile was? Gooi je hand weg of pas.' });
+    return state;
+  }
+  return beginPlay(state);
+}
+
+/** Open the round proper: poverty decisions first if anyone is on the brink. */
+function beginPlay(state: EngineState): EngineState {
   const povertyExists = state.players.some(
     (p) => !p.eliminated && p.penalty >= state.targetPoints - 1,
   );
-  state.turnSeat = startSeat;
+  state.turnSeat = nextActive(state, state.dealerSeat);
+  if (!playerAt(state, state.turnSeat).inRound) {
+    state.turnSeat = nextInRound(state, state.turnSeat);
+  }
   if (povertyExists) {
     state.phase = 'poverty';
     log(state, { kind: 'poverty', text: 'Armoede! Beslis of je meespeelt.' });
@@ -421,34 +442,162 @@ function maybeResolveKnock(state: EngineState): EngineState {
   return state;
 }
 
-// ---- dirty laundry ------------------------------------------------------
+// ---- vuile was: claim, peek, resolve ------------------------------------
 
-/** Declare Dirty Laundry: swap the whole hand for four fresh cards. */
-export function dirtyLaundry(prev: EngineState, seat: number, seed: number): EngineState {
-  if (!prev.dirtyLaundryEnabled) throw new Error('dirty laundry disabled');
-  if (prev.phase !== 'playing') throw new Error('not in playing phase');
-  if (prev.turnSeat !== seat) throw new Error('not your turn');
-  const state = clone(prev);
-  const p = playerAt(state, seat);
-  if (p.hand.length !== 4) throw new Error('can only declare with a full hand');
-
-  // Rebuild the remaining deck: full deck minus everyone's hands and played cards.
-  const used = new Set<string>();
-  for (const pl of state.players) for (const c of pl.hand) used.add(cardId(c));
-  for (const pc of state.currentTrick) used.add(cardId(pc.card));
-  const remainingDeck = shuffle(
-    freshDeck().filter((c) => !used.has(cardId(c))),
-    makeRng(seed),
-  );
-  p.hand = remainingDeck.slice(0, 4);
-  log(state, { kind: 'dirty_laundry', seat, text: `${p.name} gooit de vuile was — nieuwe hand.` });
-  return state;
-}
-
+/** A hand weak enough to throw away: four pictures, or three and a seven. */
 export function hasDirtyLaundry(hand: Card[]): boolean {
   const pictures = hand.filter(isPicture).length;
   const sevens = hand.filter((c) => c.rank === '7').length;
   return pictures === 4 || (pictures === 3 && sevens === 1);
+}
+
+/** Deal a fresh hand from what is left of the deck. */
+function swapHand(state: EngineState, seat: number, seed: number): void {
+  const used = new Set<string>();
+  for (const pl of state.players) for (const c of pl.hand) used.add(cardId(c));
+  for (const pc of state.currentTrick) used.add(cardId(pc.card));
+  const remaining = shuffle(freshDeck().filter((c) => !used.has(cardId(c))), makeRng(seed));
+  playerAt(state, seat).hand = remaining.slice(0, 4);
+}
+
+/** Seats that have claimed vuile was this round. Public: a claim is a shout. */
+export function claimantSeats(state: EngineState): number[] {
+  return state.claims.map((c) => c.seat).sort((a, b) => a - b);
+}
+
+/**
+ * Claim vuile was, or pass. Anyone may claim whether or not their hand really
+ * qualifies - the bluff is the point, and whether it was true is only settled
+ * if somebody peeks.
+ */
+export function declareWas(
+  prev: EngineState,
+  seat: number,
+  declare: boolean,
+  seed: number,
+): EngineState {
+  if (prev.phase !== 'declare') throw new Error('not in the declare phase');
+  const state = clone(prev);
+  if (!(seat in state.declareDecisions)) throw new Error('you are not at this table');
+  if (state.declareDecisions[seat] != null) throw new Error('already decided');
+
+  const p = playerAt(state, seat);
+  state.declareDecisions[seat] = declare ? 'declare' : 'pass';
+  if (declare) {
+    state.claims.push({
+      seat,
+      genuine: hasDirtyLaundry(p.hand),
+      challengers: [],
+      outcome: null,
+      revealed: null,
+    });
+    log(state, { kind: 'was_claim', seat, text: `${p.name} roept vuile was!` });
+  }
+
+  const undecided = Object.values(state.declareDecisions).some((d) => d == null);
+  if (undecided) return state;
+  return openChallenges(state, seed);
+}
+
+/** Everyone has claimed or passed: open the peeking window, or just play on. */
+function openChallenges(state: EngineState, seed: number): EngineState {
+  if (state.claims.length === 0) return beginPlay(state);
+
+  const claimants = new Set(state.claims.map((c) => c.seat));
+  let anyoneCanPeek = false;
+  for (const p of state.players) {
+    if (p.eliminated) continue;
+    // You cannot check yourself, but a claimant may still check another.
+    if (claimants.size === 1 && claimants.has(p.seat)) continue;
+    state.challengeDecisions[p.seat] = null;
+    anyoneCanPeek = true;
+  }
+  if (!anyoneCanPeek) return resolveClaims(state, seed);
+
+  state.phase = 'challenge';
+  log(state, { kind: 'challenge', text: 'Iemand gooit de vuile was. Controleren?' });
+  return state;
+}
+
+/**
+ * Peek at a claim, or let it go. Choices stay hidden until every peek is in, so
+ * nobody can wait to see whether somebody else is already checking.
+ */
+export function challengeWas(
+  prev: EngineState,
+  seat: number,
+  target: number | null,
+  seed: number,
+): EngineState {
+  if (prev.phase !== 'challenge') throw new Error('not in the challenge phase');
+  const state = clone(prev);
+  if (!(seat in state.challengeDecisions)) throw new Error('you cannot check a claim');
+  if (state.challengeDecisions[seat] != null) throw new Error('already decided');
+
+  if (target === null) {
+    state.challengeDecisions[seat] = 'pass';
+  } else {
+    const claim = state.claims.find((c) => c.seat === target);
+    if (!claim) throw new Error('nobody claimed vuile was at that seat');
+    if (target === seat) throw new Error('you cannot check yourself');
+    state.challengeDecisions[seat] = target;
+    claim.challengers.push(seat);
+  }
+
+  const undecided = Object.values(state.challengeDecisions).some((d) => d == null);
+  if (undecided) return state;
+  return resolveClaims(state, seed);
+}
+
+/**
+ * Settle every claim at once, now that all peeks are in.
+ *
+ * - nobody peeked: the hand is swapped, and whether it was a bluff stays secret
+ * - caught bluffing: the liar takes a point and plays on with the hand they
+ *   tried to throw away, which everyone has now seen
+ * - the claim was true: everyone who doubted it takes a point
+ */
+function resolveClaims(state: EngineState, seed: number): EngineState {
+  let salt = 0;
+  for (const claim of state.claims) {
+    const p = playerAt(state, claim.seat);
+
+    if (claim.challengers.length === 0) {
+      claim.outcome = 'unchallenged';
+      swapHand(state, claim.seat, seed + salt++);
+      log(state, {
+        kind: 'was_swap',
+        seat: claim.seat,
+        text: `${p.name} gooit de vuile was — vier nieuwe kaarten.`,
+      });
+      continue;
+    }
+
+    // Challenged, so the hand goes face up for everyone to judge.
+    claim.revealed = p.hand.map((c) => ({ ...c }));
+    const names = claim.challengers.map((s) => playerAt(state, s).name).join(', ');
+    const shown = claim.revealed.map(cardId).join(' ');
+
+    if (!claim.genuine) {
+      claim.outcome = 'caught';
+      p.penalty += 1;
+      log(state, {
+        kind: 'was_caught',
+        seat: claim.seat,
+        text: `${names} controleert: ${p.name} blufte (${shown}) — 1 punt, en speelt verder met dezelfde hand.`,
+      });
+    } else {
+      claim.outcome = 'wrong';
+      for (const s of claim.challengers) playerAt(state, s).penalty += 1;
+      swapHand(state, claim.seat, seed + salt++);
+      log(state, {
+        kind: 'was_proven',
+        seat: claim.seat,
+        text: `${names} controleert: ${p.name} had het echt (${shown}) — 1 punt voor ${names}.`,
+      });
+    }
+  }
+  return beginPlay(state);
 }
 
 // ---- running out of thinking time ---------------------------------------
@@ -477,9 +626,33 @@ export function pendingPovertySeats(state: EngineState): number[] {
     .sort((a, b) => a - b);
 }
 
+/** Seats that still owe a vuile-was claim-or-pass. */
+export function pendingDeclareSeats(state: EngineState): number[] {
+  if (state.phase !== 'declare') return [];
+  return Object.entries(state.declareDecisions)
+    .filter(([, d]) => d == null)
+    .map(([seat]) => Number(seat))
+    .sort((a, b) => a - b);
+}
+
+/** Seats that still owe a peek-or-let-it-go. */
+export function pendingChallengeSeats(state: EngineState): number[] {
+  if (state.phase !== 'challenge') return [];
+  return Object.entries(state.challengeDecisions)
+    .filter(([, d]) => d == null)
+    .map(([seat]) => Number(seat))
+    .sort((a, b) => a - b);
+}
+
 /** True when somebody is on the clock and the round can be moved along. */
 export function awaitingAction(state: EngineState): boolean {
-  return state.phase === 'playing' || state.phase === 'knock' || state.phase === 'poverty';
+  return (
+    state.phase === 'playing' ||
+    state.phase === 'knock' ||
+    state.phase === 'poverty' ||
+    state.phase === 'declare' ||
+    state.phase === 'challenge'
+  );
 }
 
 /**
@@ -491,8 +664,29 @@ export function awaitingAction(state: EngineState): boolean {
  *   - knock:   fold, taking the stake as it stood before the knock
  *   - poverty: fold for a single point rather than play for two
  */
-export function applyTurnTimeout(prev: EngineState): EngineState {
+export function applyTurnTimeout(prev: EngineState, seed = 0): EngineState {
   if (!awaitingAction(prev)) throw new Error(`nothing to time out in phase ${prev.phase}`);
+
+  if (prev.phase === 'declare') {
+    // Silence is not a claim.
+    let state = prev;
+    for (const seat of pendingDeclareSeats(prev)) {
+      if (state.phase !== 'declare') break;
+      state = declareWas(state, seat, false, seed);
+    }
+    return state;
+  }
+
+  if (prev.phase === 'challenge') {
+    // Silence is not a challenge: checking costs a point when the claim is
+    // true, so nobody is made to risk one by walking away.
+    let state = prev;
+    for (const seat of pendingChallengeSeats(prev)) {
+      if (state.phase !== 'challenge') break;
+      state = challengeWas(state, seat, null, seed);
+    }
+    return state;
+  }
 
   if (prev.phase === 'playing') {
     const seat = prev.turnSeat;

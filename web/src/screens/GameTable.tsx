@@ -266,7 +266,7 @@ export function GameTable({ game, messages, identity, send }: Props) {
         <YourZone game={game} send={send} />
 
         {(game.phase === 'round_over' || game.phase === 'game_over') && (
-          <RoundOverlay game={game} identity={identity} send={send} seatName={seatName} />
+          <RoundResult game={game} identity={identity} send={send} seatName={seatName} />
         )}
         {you?.mustRespondKnock && <KnockOverlay game={game} send={send} seatName={seatName} />}
         {you?.mustDecidePoverty && <PovertyOverlay game={game} send={send} />}
@@ -318,6 +318,93 @@ function Standings({ game, identity }: { game: GameView; identity: Identity }) {
   );
 }
 
+/**
+ * The vuile-was prompts.
+ *
+ * Deliberately a bar above your own hand rather than a modal: both decisions
+ * are made by looking at your cards, so covering them would be absurd. Nothing
+ * here ever shows who else is checking - that is the whole point of the peek.
+ */
+function WasPrompt({ game, send, seatName }: { game: GameView; send: (m: any) => void; seatName: (s: number) => string }) {
+  const you = game.you;
+  const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
+  if (!you) return null;
+
+  const bar = (children: React.ReactNode) => (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        flexWrap: 'wrap',
+        margin: '0 auto 10px',
+        padding: '10px 16px',
+        maxWidth: 680,
+        borderRadius: 12,
+        background: 'rgba(28,16,6,0.9)',
+        border: '1px solid rgba(201,143,61,0.45)',
+      }}
+    >
+      {children}
+      {secondsLeft !== null && <Countdown seconds={secondsLeft} />}
+    </div>
+  );
+
+  if (you.mustDeclareWas) {
+    return bar(
+      <>
+        <span style={{ fontFamily: 'var(--hand)', fontSize: 20, color: 'var(--gold-soft)' }}>
+          Vuile was?
+        </span>
+        <span style={{ color: 'rgba(247,242,230,0.7)', fontSize: 13 }}>
+          Je mag bluffen — maar iemand kan je controleren.
+        </span>
+        <button className="btn btn-primary" onClick={() => send({ type: 'declareWas', declare: true })}>
+          Gooi weg
+        </button>
+        <button className="btn btn-ghost" onClick={() => send({ type: 'declareWas', declare: false })}>
+          Pas
+        </button>
+      </>,
+    );
+  }
+
+  if (you.mustChallengeWas) {
+    const claimants = game.wasClaimants ?? [];
+    return bar(
+      <>
+        <span style={{ fontFamily: 'var(--hand)', fontSize: 20, color: 'var(--gold-soft)' }}>
+          {claimants.map(seatName).join(' en ')} roept vuile was
+        </span>
+        <span style={{ color: 'rgba(247,242,230,0.7)', fontSize: 13 }}>
+          Controleren kost je een punt als het klopt.
+        </span>
+        {claimants
+          .filter((seat) => seat !== you.seat)
+          .map((seat) => (
+            <button key={seat} className="btn btn-red" onClick={() => send({ type: 'challengeWas', target: seat })}>
+              Controleer {seatName(seat)}
+            </button>
+          ))}
+        <button className="btn btn-ghost" onClick={() => send({ type: 'challengeWas', target: null })}>
+          Laat maar
+        </button>
+      </>,
+    );
+  }
+
+  // Decided, but the window is still open on somebody else.
+  if (game.phase === 'declare' || game.phase === 'challenge') {
+    return bar(
+      <span style={{ color: 'rgba(247,242,230,0.7)' }}>
+        Wachten op de rest…
+      </span>,
+    );
+  }
+  return null;
+}
+
 function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
   const you = game.you;
   const yourSeat = game.players.find((p) => p.isYou);
@@ -328,6 +415,7 @@ function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
 
   return (
     <div style={{ zIndex: 3, padding: '10px 24px 20px', background: 'linear-gradient(0deg, rgba(0,0,0,0.35), transparent)' }}>
+      <WasPrompt game={game} send={send} seatName={(s) => game.players.find((p) => p.seat === s)?.name ?? '?'} />
       {yourSeat && yourSeat.played.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 6 }}>
           <span style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(247,242,230,0.45)' }}>
@@ -364,11 +452,7 @@ function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
             Toep!
           </button>
         )}
-        {you.canDirtyLaundry && (
-          <button className="btn btn-ghost" onClick={() => send({ type: 'dirtyLaundry' })}>
-            Vuile was
-          </button>
-        )}
+
         {!you.isMyTurn && game.phase === 'playing' && !you.folded && (
           <span style={{ color: 'rgba(247,242,230,0.6)' }}>Wachten op {game.players.find((p) => p.seat === game.turnSeat)?.name}…</span>
         )}
@@ -432,36 +516,76 @@ function PovertyOverlay({ game, send }: { game: GameView; send: (m: any) => void
   );
 }
 
-function RoundOverlay({ game, identity, send, seatName }: { game: GameView; identity: Identity; send: (m: any) => void; seatName: (s: number) => string }) {
+/**
+ * The end-of-round result.
+ *
+ * Deliberately NOT a modal: the whole point of the moment is reading the table
+ * - the winning trick is still on the felt and every player's cards are still
+ * face up in their pile. A centred overlay buried exactly the thing you want to
+ * look at, and whoever dealt next took it away before you had. So the result
+ * sits in the corner opposite the standings and covers nothing.
+ *
+ * The end of the *game* is still a modal: there is no table left to study.
+ */
+function RoundResult({ game, identity, send, seatName }: { game: GameView; identity: Identity; send: (m: any) => void; seatName: (s: number) => string }) {
   const isGameOver = game.phase === 'game_over';
   const winnerSeat = isGameOver ? game.gameWinnerSeat : game.winnerSeat;
   const winnerName = winnerSeat != null ? seatName(winnerSeat) : '';
   const youWon = winnerSeat != null && game.players.find((p) => p.seat === winnerSeat)?.id === identity.playerId;
   const lastLines = (game.log ?? []).slice(-4);
 
-  return (
-    <Overlay>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: 34, fontWeight: 700, color: 'var(--gold-soft)', marginBottom: 6 }}>
-        {isGameOver ? '🏆 Spel afgelopen' : 'Ronde afgelopen'}
-      </div>
-      <div style={{ fontSize: 20, color: 'var(--parchment)', marginBottom: 14 }}>
-        {youWon ? 'Jij wint' : `${winnerName} wint`} {isGameOver ? 'het potje!' : 'de ronde.'}
-      </div>
-      <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 10, padding: '10px 16px', marginBottom: 20, maxWidth: 420 }}>
-        {lastLines.map((l, i) => (
-          <div key={i} style={{ color: 'var(--parchment)', opacity: 0.85, fontSize: 14, padding: '2px 0' }}>{l.text}</div>
-        ))}
-      </div>
-      {isGameOver ? (
+  if (isGameOver) {
+    return (
+      <Overlay>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 34, fontWeight: 700, color: 'var(--gold-soft)', marginBottom: 6 }}>
+          🏆 Spel afgelopen
+        </div>
+        <div style={{ fontSize: 20, color: 'var(--parchment)', marginBottom: 20 }}>
+          {youWon ? 'Jij wint het potje!' : `${winnerName} wint het potje!`}
+        </div>
         <Link to="/" className="btn btn-primary" style={{ fontSize: 17, padding: '0.8rem 2rem' }}>
           Nieuw potje
         </Link>
-      ) : (
-        <button className="btn btn-primary" style={{ fontSize: 17, padding: '0.8rem 2rem' }} onClick={() => send({ type: 'nextRound' })}>
-          Volgende ronde delen
-        </button>
-      )}
-    </Overlay>
+      </Overlay>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        // Bottom-left: the one corner with nothing in it. Top-left clipped the
+        // first opponent's pile, which is exactly what this panel exists to
+        // stop covering.
+        bottom: 20,
+        left: 20,
+        width: 250,
+        zIndex: 20,
+        background: 'rgba(28,16,6,0.92)',
+        border: '1px solid rgba(201,143,61,0.45)',
+        borderRadius: 14,
+        padding: '14px 16px',
+        boxShadow: '0 18px 40px rgba(0,0,0,0.5)',
+      }}
+    >
+      <div style={{ fontFamily: 'var(--hand)', fontSize: 22, color: 'var(--gold-soft)' }}>
+        Ronde afgelopen
+      </div>
+      <div style={{ fontSize: 17, color: 'var(--parchment)', fontWeight: 600, margin: '2px 0 10px' }}>
+        {youWon ? 'Jij wint de ronde.' : `${winnerName} wint de ronde.`}
+      </div>
+      <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
+        {lastLines.map((l, i) => (
+          <div key={i} style={{ color: 'var(--parchment)', opacity: 0.85, fontSize: 13, padding: '1px 0' }}>{l.text}</div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.55)', marginBottom: 10 }}>
+        De kaarten blijven liggen tot er gedeeld wordt.
+      </div>
+      <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => send({ type: 'nextRound' })}>
+        Volgende ronde delen
+      </button>
+    </div>
   );
 }
 

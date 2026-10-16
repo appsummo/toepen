@@ -7,7 +7,8 @@ import {
   knock,
   respondKnock,
   povertyDecide,
-  dirtyLaundry,
+  declareWas,
+  challengeWas,
   applyTurnTimeout,
   awaitingAction,
 } from '../engine/engine.js';
@@ -145,7 +146,7 @@ async function scheduleTimer(gameId: string): Promise<void> {
 async function onTimeout(gameId: string): Promise<void> {
   timers.delete(gameId);
   try {
-    await mutateEngine(gameId, (state) => applyTurnTimeout(state));
+    await mutateEngine(gameId, (state) => applyTurnTimeout(state, seed()));
   } catch (err) {
     // Leave the clock stopped rather than retrying into a hot loop; the next
     // player action reschedules it.
@@ -314,8 +315,24 @@ export async function handlePoverty(
   );
 }
 
-export async function handleDirtyLaundry(gameId: string, playerId: string): Promise<void> {
-  await mutateEngine(gameId, (state) => dirtyLaundry(state, seatOf(state, playerId), seed()));
+export async function handleDeclareWas(
+  gameId: string,
+  playerId: string,
+  declare: boolean,
+): Promise<void> {
+  await mutateEngine(gameId, (state) =>
+    declareWas(state, seatOf(state, playerId), declare, seed()),
+  );
+}
+
+export async function handleChallengeWas(
+  gameId: string,
+  playerId: string,
+  target: number | null,
+): Promise<void> {
+  await mutateEngine(gameId, (state) =>
+    challengeWas(state, seatOf(state, playerId), target, seed()),
+  );
 }
 
 export async function handleNextRound(gameId: string, playerId: string): Promise<void> {

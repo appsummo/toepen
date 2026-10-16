@@ -13,6 +13,12 @@ import {
   povertyDecide,
   applyTurnTimeout,
   awaitingAction,
+  declareWas,
+  challengeWas,
+  pendingDeclareSeats,
+  pendingChallengeSeats,
+  claimantSeats,
+  hasDirtyLaundry,
   pendingKnockSeats,
   pendingPovertySeats,
 } from '../src/engine/engine.ts';
@@ -27,6 +33,21 @@ function newGame(names = ['A', 'B', 'C', 'D']) {
     eliminated: false,
   }));
   return createEngine(seats, { targetPoints: 10, dirtyLaundryEnabled: true });
+}
+
+/**
+ * Deal and walk straight through the vuile-was window with everyone passing.
+ * Most tests are about play, not claims, and a raw startRound now stops in the
+ * declare phase - which would make every `if (phase !== 'playing') return`
+ * guard below pass vacuously instead of testing anything.
+ */
+function deal(state: EngineState, seed: number): EngineState {
+  let next = startRound(state, seed);
+  let guard = 0;
+  while (next.phase === 'declare' && guard++ < 20) {
+    next = declareWas(next, pendingDeclareSeats(next)[0], false, 1);
+  }
+  return next;
 }
 
 // Drive a full round by always playing each player's first legal card.
@@ -48,14 +69,14 @@ test('fresh deck is 32 unique piquet cards', () => {
 
 test('deals four cards to each active player', () => {
   let state = newGame();
-  state = startRound(state, 12345);
+  state = deal(state, 12345);
   for (const p of state.players) assert.equal(p.hand.length, 4);
   assert.ok(state.phase === 'playing' || state.phase === 'round_over');
 });
 
 test('a full round resolves and assigns exactly one round winner', () => {
   let state = newGame();
-  state = startRound(state, 999);
+  state = deal(state, 999);
   if (state.phase === 'playing') state = autoPlayRound(state);
   assert.ok(state.phase === 'round_over' || state.phase === 'game_over');
   assert.notEqual(state.winnerSeat, null);
@@ -65,7 +86,7 @@ test('a full round resolves and assigns exactly one round winner', () => {
 
 test('players must follow suit when able', () => {
   let state = newGame();
-  state = startRound(state, 42);
+  state = deal(state, 42);
   if (state.phase !== 'playing') return; // skip if instant-win deal
   const leader = state.turnSeat;
   const first = legalCards(state, leader)[0];
@@ -82,7 +103,7 @@ test('players must follow suit when able', () => {
 
 test('knock raises the stake and folding removes a player from the round', () => {
   let state = newGame();
-  state = startRound(state, 7);
+  state = deal(state, 7);
   if (state.phase !== 'playing') return;
   const knocker = state.turnSeat;
   assert.ok(canKnock(state, knocker));
@@ -104,7 +125,7 @@ test('knock raises the stake and folding removes a player from the round', () =>
 
 test('cannot re-knock yourself twice in a row', () => {
   let state = newGame();
-  state = startRound(state, 7);
+  state = deal(state, 7);
   if (state.phase !== 'playing') return;
   const knocker = state.turnSeat;
   state = knock(state, knocker);
@@ -120,7 +141,7 @@ test('game ends when only one player remains', () => {
   // Push B to the brink by simulating many rounds.
   let guard = 0;
   while (state.phase !== 'game_over' && guard++ < 200) {
-    if (state.phase === 'round_over') state = startRound(state, 1000 + guard);
+    if (state.phase === 'round_over') state = deal(state, 1000 + guard);
     // In poverty, everyone who can decide chooses to play so rounds keep resolving.
     while (state.phase === 'poverty') {
       const decider = state.players.find(
@@ -141,7 +162,7 @@ test('game ends when only one player remains', () => {
 function finalTrickWithFolder(): EngineState {
   let state = newGame(['A', 'B', 'C']);
   state.dealerSeat = 2;
-  state = startRound(state, 1234);
+  state = deal(state, 1234);
   state = structuredClone(state);
   for (const p of state.players) {
     p.penalty = 0;
@@ -201,7 +222,7 @@ test('the trick still waits for every remaining contender after a fold', () => {
 
 test('the lead suit shifts when the opening player folds mid-trick', () => {
   let state = newGame(['A', 'B', 'C']);
-  state = startRound(state, 4242);
+  state = deal(state, 4242);
   state = structuredClone(state);
   for (const p of state.players) {
     p.penalty = 0;
@@ -244,7 +265,7 @@ function persistRoundTrip(state: EngineState): EngineState {
 
 test('a pending knock survives being persisted as JSON', () => {
   let state = newGame(['A', 'B', 'C']);
-  state = startRound(state, 77);
+  state = deal(state, 77);
   if (state.phase !== 'playing') return;
 
   const knocker = state.turnSeat;
@@ -268,7 +289,7 @@ test('a pending knock survives being persisted as JSON', () => {
 
 test('players are still prompted to answer a knock after a round trip', () => {
   let state = newGame(['A', 'B', 'C']);
-  state = startRound(state, 77);
+  state = deal(state, 77);
   if (state.phase !== 'playing') return;
 
   const knocker = state.turnSeat;
@@ -286,7 +307,7 @@ test('players are still prompted to answer a knock after a round trip', () => {
 
 test('cards played stay face up per player for the whole round', () => {
   let state = newGame(['A', 'B', 'C']);
-  state = startRound(state, 31337);
+  state = deal(state, 31337);
   if (state.phase !== 'playing') return;
   for (const p of state.players) assert.equal(p.played.length, 0);
 
@@ -320,7 +341,7 @@ test('cards played stay face up per player for the whole round', () => {
   assert.equal(new Set(all).size, all.length);
 
   // A new deal wipes the table.
-  state = startRound(state, 31338);
+  state = deal(state, 31338);
   for (const p of state.players) assert.equal(p.played.length, 0);
 });
 
@@ -338,7 +359,7 @@ test('a card withdrawn from the trick on a fold stays visible in its pile', () =
 
 test('running out of time plays the weakest legal card', () => {
   let state = newGame(['A', 'B', 'C']);
-  state = startRound(state, 909);
+  state = deal(state, 909);
   if (state.phase !== 'playing') return;
 
   const seat = state.turnSeat;
@@ -359,7 +380,7 @@ test('running out of time plays the weakest legal card', () => {
 
 test('running out of time on a knock folds rather than calling', () => {
   let state = newGame(['A', 'B', 'C']);
-  state = startRound(state, 909);
+  state = deal(state, 909);
   if (state.phase !== 'playing') return;
 
   const knocker = state.turnSeat;
@@ -380,7 +401,7 @@ test('running out of time on a knock folds rather than calling', () => {
 
 test('a timed-out folder pays the pre-knock stake, not the raised one', () => {
   let state = newGame(['A', 'B']);
-  state = startRound(state, 55);
+  state = deal(state, 55);
   if (state.phase !== 'playing') return;
 
   const knocker = state.turnSeat;
@@ -396,7 +417,7 @@ test('a timed-out folder pays the pre-knock stake, not the raised one', () => {
 test('awaitingAction marks exactly the phases somebody can be waited on', () => {
   let state = newGame(['A', 'B', 'C']);
   assert.equal(awaitingAction(state), false); // round_over before the first deal
-  state = startRound(state, 909);
+  state = deal(state, 909);
   if (state.phase === 'playing') assert.equal(awaitingAction(state), true);
 
   const finished = { ...state, phase: 'game_over' as const };
@@ -409,7 +430,7 @@ test('poverty decisions left unanswered fold', () => {
   let state = newGame(['A', 'B', 'C']);
   // Put one player on the brink so the next deal opens with poverty.
   state.players[0].penalty = state.targetPoints - 1;
-  state = startRound(state, 2024);
+  state = deal(state, 2024);
   if (state.phase !== 'poverty') return;
 
   const undecided = pendingPovertySeats(state);
@@ -422,4 +443,159 @@ test('poverty decisions left unanswered fold', () => {
     assert.ok(p.folded, `seat ${seat} should have folded`);
     assert.equal(p.foldPenalty, 1);
   }
+});
+
+// ---- vuile was: claim, peek, resolve ------------------------------------
+
+/**
+ * Deal and stop in the declare window, with hands pinned so each player's claim
+ * is genuine or a bluff by construction rather than by luck of the deal.
+ */
+function dealForClaims(): EngineState {
+  let state = newGame(['A', 'B', 'C']);
+  state = startRound(state, 4711);
+  assert.equal(state.phase, 'declare');
+  state = structuredClone(state);
+  // A genuinely has vuile was: four pictures.
+  state.players[0].hand = [
+    { suit: 'C', rank: 'J' }, { suit: 'D', rank: 'Q' },
+    { suit: 'H', rank: 'K' }, { suit: 'S', rank: 'A' },
+  ];
+  // B does not: nothing but high cards.
+  state.players[1].hand = [
+    { suit: 'C', rank: '10' }, { suit: 'D', rank: '9' },
+    { suit: 'H', rank: '8' }, { suit: 'S', rank: '7' },
+  ];
+  state.players[2].hand = [
+    { suit: 'H', rank: '10' }, { suit: 'S', rank: '9' },
+    { suit: 'C', rank: '8' }, { suit: 'D', rank: '8' },
+  ];
+  return state;
+}
+
+test('a deal opens the vuile-was window for everyone', () => {
+  const state = dealForClaims();
+  assert.equal(state.phase, 'declare');
+  assert.deepEqual(pendingDeclareSeats(state), [0, 1, 2]);
+  assert.ok(hasDirtyLaundry(state.players[0].hand));
+  assert.ok(!hasDirtyLaundry(state.players[1].hand));
+});
+
+test('if nobody claims, the round just begins', () => {
+  let state = dealForClaims();
+  for (const seat of [0, 1, 2]) state = declareWas(state, seat, false, 1);
+  assert.ok(state.phase === 'playing' || state.phase === 'poverty');
+  assert.equal(state.claims.length, 0);
+});
+
+test('anyone may claim vuile was, holding it or not', () => {
+  let state = dealForClaims();
+  // Seat 1 is bluffing outright and the engine lets them.
+  state = declareWas(state, 1, true, 1);
+  assert.equal(state.claims.length, 1);
+  assert.equal(state.claims[0].seat, 1);
+  assert.equal(state.claims[0].genuine, false);
+  assert.deepEqual(claimantSeats(state), [1]);
+});
+
+test('an unchallenged claim swaps the hand and keeps the bluff secret', () => {
+  let state = dealForClaims();
+  const before = state.players[1].hand.map(cardId);
+  state = declareWas(state, 1, true, 1); // a bluff
+  state = declareWas(state, 0, false, 1);
+  state = declareWas(state, 2, false, 1);
+  assert.equal(state.phase, 'challenge');
+
+  state = challengeWas(state, 0, null, 7);
+  state = challengeWas(state, 2, null, 7);
+
+  const claim = state.claims[0];
+  assert.equal(claim.outcome, 'unchallenged');
+  assert.equal(claim.revealed, null, 'an unchallenged hand is never shown');
+  assert.notDeepEqual(state.players[1].hand.map(cardId), before, 'hand was swapped');
+  assert.equal(state.players[1].penalty, 0, 'an unchecked bluff costs nothing');
+});
+
+test('a bluff that gets checked costs a point and the hand is not swapped', () => {
+  let state = dealForClaims();
+  const before = state.players[1].hand.map(cardId);
+  state = declareWas(state, 1, true, 1); // bluffing
+  state = declareWas(state, 0, false, 1);
+  state = declareWas(state, 2, false, 1);
+
+  state = challengeWas(state, 0, 1, 7); // seat 0 peeks at seat 1
+  state = challengeWas(state, 2, null, 7);
+
+  const claim = state.claims[0];
+  assert.equal(claim.outcome, 'caught');
+  assert.equal(state.players[1].penalty, 1, 'the bluffer takes the point');
+  assert.equal(state.players[0].penalty, 0, 'the checker was right, so pays nothing');
+  assert.deepEqual(
+    state.players[1].hand.map(cardId),
+    before,
+    'a caught bluffer plays on with the hand they tried to throw away',
+  );
+  assert.deepEqual(claim.revealed?.map(cardId), before, 'and it is shown to the table');
+});
+
+test('checking a true claim costs the checker a point', () => {
+  let state = dealForClaims();
+  const before = state.players[0].hand.map(cardId);
+  state = declareWas(state, 0, true, 1); // genuine: four pictures
+  state = declareWas(state, 1, false, 1);
+  state = declareWas(state, 2, false, 1);
+
+  state = challengeWas(state, 1, 0, 7);
+  state = challengeWas(state, 2, null, 7);
+
+  const claim = state.claims[0];
+  assert.equal(claim.outcome, 'wrong');
+  assert.equal(state.players[1].penalty, 1, 'the doubter pays');
+  assert.equal(state.players[0].penalty, 0, 'the honest claimant does not');
+  assert.notDeepEqual(state.players[0].hand.map(cardId), before, 'and still gets new cards');
+});
+
+test('every checker of a true claim pays, so checking in a crowd is not free', () => {
+  let state = dealForClaims();
+  state = declareWas(state, 0, true, 1);
+  state = declareWas(state, 1, false, 1);
+  state = declareWas(state, 2, false, 1);
+
+  state = challengeWas(state, 1, 0, 7);
+  state = challengeWas(state, 2, 0, 7);
+
+  assert.deepEqual(state.claims[0].challengers.sort(), [1, 2]);
+  assert.equal(state.players[1].penalty, 1);
+  assert.equal(state.players[2].penalty, 1);
+});
+
+test('you cannot check yourself, or a seat that claimed nothing', () => {
+  let state = dealForClaims();
+  state = declareWas(state, 0, true, 1);
+  state = declareWas(state, 1, true, 1);
+  state = declareWas(state, 2, false, 1);
+  assert.equal(state.phase, 'challenge');
+
+  assert.throws(() => challengeWas(state, 0, 0, 7), /cannot check yourself/);
+  assert.throws(() => challengeWas(state, 2, 2, 7), /nobody claimed/);
+});
+
+test('running out of time neither claims nor checks', () => {
+  let state = dealForClaims();
+  // Nobody answers the declare window: silence is not a claim.
+  state = applyTurnTimeout(state, 3);
+  assert.equal(state.claims.length, 0);
+  assert.ok(state.phase === 'playing' || state.phase === 'poverty');
+
+  let other = dealForClaims();
+  other = declareWas(other, 1, true, 1); // a bluff nobody will get round to
+  other = declareWas(other, 0, false, 1);
+  other = declareWas(other, 2, false, 1);
+  assert.equal(other.phase, 'challenge');
+
+  other = applyTurnTimeout(other, 3);
+  // Silence must not cost a point: checking a true claim is what costs one.
+  assert.equal(other.claims[0].outcome, 'unchallenged');
+  assert.equal(other.players[0].penalty, 0);
+  assert.equal(other.players[2].penalty, 0);
 });

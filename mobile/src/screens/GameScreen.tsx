@@ -174,13 +174,9 @@ export function GameScreen({ route, navigation }: RootScreenProps<'Game'>) {
             {you?.canKnock && (
               <Button title="Toep!" variant="red" onPress={() => send({ type: 'knock' })} />
             )}
-            {you?.canDirtyLaundry && (
-              <Button
-                title="Vuile was"
-                variant="ghost"
-                onPress={() => send({ type: 'dirtyLaundry' })}
-              />
-            )}
+            {/* Vuile was moved to a claim-and-peek window at the start of the
+                round. The server runs it for every client; the mobile screens
+                for it are not built yet, so there is no button here. */}
           </View>
         </View>
 

@@ -1,6 +1,5 @@
 import type { EngineState } from '../engine/types.js';
-import { canKnock, legalCards } from '../engine/engine.js';
-import { hasDirtyLaundry } from '../engine/engine.js';
+import { canKnock, legalCards, claimantSeats } from '../engine/engine.js';
 import type { GameRow, PlayerRow } from '../db/repo.js';
 
 // A sanitized snapshot sent to one viewer: only their own hand is revealed.
@@ -79,12 +78,13 @@ export function buildView(
         legalCards: isMyTurn && state.phase === 'playing' ? legalCards(state, me.seat) : [],
         canKnock: canKnock(state, me.seat),
         canPlay: isMyTurn && state.phase === 'playing',
-        canDirtyLaundry:
-          isMyTurn &&
-          state.phase === 'playing' &&
-          state.dirtyLaundryEnabled &&
-          me.hand.length === 4 &&
-          hasDirtyLaundry(me.hand),
+        // Anyone may claim vuile was, true or not - the bluff is the point, so
+        // this is never gated on actually holding the hand.
+        mustDeclareWas: state.phase === 'declare' && state.declareDecisions[me.seat] === null,
+        mustChallengeWas:
+          state.phase === 'challenge' &&
+          me.seat in state.challengeDecisions &&
+          state.challengeDecisions[me.seat] === null,
         mustRespondKnock:
           state.phase === 'knock' &&
           !!state.pendingKnock &&
@@ -113,6 +113,16 @@ export function buildView(
     // The clock is the server's. `now` ships with every snapshot so a client
     // whose own clock is wrong can measure the offset instead of counting down
     // from a deadline it would otherwise misread.
+    // Who claimed is public - a claim is shouted. Who is *checking* is not, and
+    // challengeDecisions never leaves the server while the window is open: that
+    // is what lets several players quietly decide to check at once.
+    wasClaimants: claimantSeats(state),
+    wasResults:
+      state.phase === 'declare' || state.phase === 'challenge'
+        ? []
+        : state.claims
+            .filter((c) => c.outcome && c.outcome !== 'unchallenged')
+            .map((c) => ({ seat: c.seat, outcome: c.outcome, revealed: c.revealed })),
     turnDeadline: state.turnDeadline ?? null,
     now: Date.now(),
     winnerSeat: state.winnerSeat,

@@ -1,6 +1,8 @@
 import type { Card, Suit } from './cards.js';
 
 export type Phase =
+  | 'declare'      // everyone may claim a weak hand (vuile was) - bluffing allowed
+  | 'challenge'    // others may secretly peek at a claim
   | 'poverty'      // waiting for poverty play/fold decisions before the round starts
   | 'playing'      // normal trick play
   | 'knock'        // a knock is pending; awaiting call/fold responses
@@ -35,6 +37,20 @@ export interface ShownCard {
   trick: number; // which trick (0-3) it was played into
 }
 
+/**
+ * A claim of "vuile was" - a hand weak enough to throw away (four pictures, or
+ * three pictures and a seven). Anyone may claim it whether or not it is true;
+ * the bluff is the point. `challengers` is hidden from players until the claims
+ * resolve, so nobody can see who else is checking before deciding themselves.
+ */
+export interface WasClaim {
+  seat: number;
+  genuine: boolean;    // whether the dealt hand actually qualified
+  challengers: number[];
+  outcome: 'unchallenged' | 'caught' | 'wrong' | null;
+  revealed: Card[] | null; // the hand shown when challenged, for everyone to see
+}
+
 export interface PendingKnock {
   knockerSeat: number;
   newStake: number;                 // stake level if accepted
@@ -66,6 +82,12 @@ export interface EngineState {
   pendingKnock: PendingKnock | null;
   players: EnginePlayer[];
   povertyDecisions: Record<number, 'play' | 'fold' | undefined>;
+  claims: WasClaim[];
+  // `null` means "still deciding" - never `undefined`, which JSON would drop.
+  declareDecisions: Record<number, 'declare' | 'pass' | null>;
+  // Seat -> the seat they peeked at, or 'pass'. Never sent to clients while the
+  // challenge phase is open; that is what keeps peeking discreet.
+  challengeDecisions: Record<number, number | 'pass' | null>;
   log: RoundLogEntry[];
   // Epoch ms by which the players being waited on must act, or null when
   // nobody is on the clock. Set by the room manager, never read by the engine:
