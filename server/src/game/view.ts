@@ -110,6 +110,11 @@ export function buildView(
     stake: state.stake,
     lastKnockerSeat: state.lastKnockerSeat,
     pendingKnock: state.pendingKnock,
+    // The clock is the server's. `now` ships with every snapshot so a client
+    // whose own clock is wrong can measure the offset instead of counting down
+    // from a deadline it would otherwise misread.
+    turnDeadline: state.turnDeadline ?? null,
+    now: Date.now(),
     winnerSeat: state.winnerSeat,
     gameWinnerSeat: state.gameWinnerSeat,
     log: state.log.slice(-30),

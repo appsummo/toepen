@@ -82,6 +82,10 @@ export interface GameView {
   stake?: number;
   lastKnockerSeat?: number | null;
   pendingKnock?: PendingKnock | null;
+  /** Epoch ms when the players on the clock run out of time; null when nobody is. */
+  turnDeadline?: number | null;
+  /** The server's clock when this snapshot was built, for correcting skew. */
+  now?: number;
   winnerSeat?: number | null;
   gameWinnerSeat?: number | null;
   log?: LogEntry[];

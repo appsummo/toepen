@@ -67,6 +67,10 @@ export interface EngineState {
   players: EnginePlayer[];
   povertyDecisions: Record<number, 'play' | 'fold' | undefined>;
   log: RoundLogEntry[];
+  // Epoch ms by which the players being waited on must act, or null when
+  // nobody is on the clock. Set by the room manager, never read by the engine:
+  // the engine stays a pure function of its inputs and knows nothing of time.
+  turnDeadline: number | null;
   winnerSeat: number | null;        // round winner (last-trick winner)
   gameWinnerSeat: number | null;    // overall game winner
 }

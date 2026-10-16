@@ -127,6 +127,7 @@ export function createEngine(seats: SeatInit[], opts: EngineOptions): EngineStat
     players,
     povertyDecisions: {},
     log: [],
+    turnDeadline: null,
     winnerSeat: null,
     gameWinnerSeat: null,
   };
@@ -448,6 +449,90 @@ export function hasDirtyLaundry(hand: Card[]): boolean {
   const pictures = hand.filter(isPicture).length;
   const sevens = hand.filter((c) => c.rank === '7').length;
   return pictures === 4 || (pictures === 3 && sevens === 1);
+}
+
+// ---- running out of thinking time ---------------------------------------
+
+/** Seats still owing an answer to the pending knock. */
+export function pendingKnockSeats(state: EngineState): number[] {
+  if (state.phase !== 'knock' || !state.pendingKnock) return [];
+  return Object.entries(state.pendingKnock.responses)
+    .filter(([, response]) => response == null)
+    .map(([seat]) => Number(seat))
+    .sort((a, b) => a - b);
+}
+
+/** Seats that still owe a poverty play/fold decision. */
+export function pendingPovertySeats(state: EngineState): number[] {
+  if (state.phase !== 'poverty') return [];
+  return state.players
+    .filter(
+      (p) =>
+        !p.eliminated &&
+        p.inRound &&
+        p.penalty < state.targetPoints - 1 &&
+        state.povertyDecisions[p.seat] === undefined,
+    )
+    .map((p) => p.seat)
+    .sort((a, b) => a - b);
+}
+
+/** True when somebody is on the clock and the round can be moved along. */
+export function awaitingAction(state: EngineState): boolean {
+  return state.phase === 'playing' || state.phase === 'knock' || state.phase === 'poverty';
+}
+
+/**
+ * Apply the default action for everyone whose thinking time has run out.
+ *
+ * The defaults are deliberately the most conservative legal move, so a player
+ * who steps away is never committed to more than they already accepted:
+ *   - playing: lead/follow with their weakest legal card
+ *   - knock:   fold, taking the stake as it stood before the knock
+ *   - poverty: fold for a single point rather than play for two
+ */
+export function applyTurnTimeout(prev: EngineState): EngineState {
+  if (!awaitingAction(prev)) throw new Error(`nothing to time out in phase ${prev.phase}`);
+
+  if (prev.phase === 'playing') {
+    const seat = prev.turnSeat;
+    const legal = legalCards(prev, seat);
+    if (legal.length === 0) throw new Error('no legal card to auto-play');
+    const weakest = legal.reduce((a, b) => (rankStrength(b.rank) < rankStrength(a.rank) ? b : a));
+    const state = clone(prev);
+    log(state, {
+      kind: 'timeout',
+      seat,
+      text: `Bedenktijd van ${playerAt(state, seat).name} verstreken.`,
+    });
+    return playCard(state, seat, weakest);
+  }
+
+  if (prev.phase === 'knock') {
+    let state = clone(prev);
+    for (const seat of pendingKnockSeats(prev)) {
+      if (state.phase !== 'knock') break; // the knock resolved on an earlier fold
+      log(state, {
+        kind: 'timeout',
+        seat,
+        text: `${playerAt(state, seat).name} reageerde niet en vouwt.`,
+      });
+      state = respondKnock(state, seat, 'fold');
+    }
+    return state;
+  }
+
+  let state = clone(prev);
+  for (const seat of pendingPovertySeats(prev)) {
+    if (state.phase !== 'poverty') break;
+    log(state, {
+      kind: 'timeout',
+      seat,
+      text: `${playerAt(state, seat).name} besliste niet en vouwt.`,
+    });
+    state = povertyDecide(state, seat, 'fold');
+  }
+  return state;
 }
 
 // ---- round resolution ---------------------------------------------------

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { freshDeck, cardId } from '../src/engine/cards.ts';
+import { freshDeck, cardId, rankStrength } from '../src/engine/cards.ts';
 import {
   createEngine,
   startRound,
@@ -11,6 +11,10 @@ import {
   canKnock,
   inRoundSeats,
   povertyDecide,
+  applyTurnTimeout,
+  awaitingAction,
+  pendingKnockSeats,
+  pendingPovertySeats,
 } from '../src/engine/engine.ts';
 import type { EngineState } from '../src/engine/types.ts';
 
@@ -330,4 +334,92 @@ test('a card withdrawn from the trick on a fold stays visible in its pile', () =
     ['C10'],
     'but the table already saw it, so it stays countable',
   );
+});
+
+test('running out of time plays the weakest legal card', () => {
+  let state = newGame(['A', 'B', 'C']);
+  state = startRound(state, 909);
+  if (state.phase !== 'playing') return;
+
+  const seat = state.turnSeat;
+  const legal = legalCards(state, seat);
+  const weakest = legal.reduce((a, b) => (rankStrength(b.rank) < rankStrength(a.rank) ? b : a));
+  const before = state.players.find((p) => p.seat === seat)!.hand.length;
+
+  state = applyTurnTimeout(state);
+
+  const player = state.players.find((p) => p.seat === seat)!;
+  assert.equal(player.hand.length, before - 1);
+  // The weakest card left the hand and is on the table, not some other card.
+  assert.ok(state.players.find((p) => p.seat === seat)!.played.some(
+    (shown) => cardId(shown.card) === cardId(weakest),
+  ));
+  assert.ok(state.log.some((e) => e.kind === 'timeout' && e.seat === seat));
+});
+
+test('running out of time on a knock folds rather than calling', () => {
+  let state = newGame(['A', 'B', 'C']);
+  state = startRound(state, 909);
+  if (state.phase !== 'playing') return;
+
+  const knocker = state.turnSeat;
+  state = knock(state, knocker);
+  assert.equal(state.phase, 'knock');
+  const asked = pendingKnockSeats(state);
+  assert.equal(asked.length, 2);
+
+  state = applyTurnTimeout(state);
+
+  // Everyone who stayed silent folded, so only the knocker is left and the
+  // round is theirs - nobody was signed up for the higher stake in absentia.
+  for (const seat of asked) {
+    assert.ok(state.players.find((p) => p.seat === seat)!.folded, `seat ${seat} should have folded`);
+  }
+  assert.equal(state.winnerSeat, knocker);
+});
+
+test('a timed-out folder pays the pre-knock stake, not the raised one', () => {
+  let state = newGame(['A', 'B']);
+  state = startRound(state, 55);
+  if (state.phase !== 'playing') return;
+
+  const knocker = state.turnSeat;
+  const other = state.players.find((p) => p.seat !== knocker)!.seat;
+  state = knock(state, knocker); // stake would become 2 if called
+  state = applyTurnTimeout(state);
+
+  // Folding is the conservative default: one point, not the two a call risked.
+  assert.equal(state.players.find((p) => p.seat === other)!.penalty, 1);
+  assert.equal(state.players.find((p) => p.seat === knocker)!.penalty, 0);
+});
+
+test('awaitingAction marks exactly the phases somebody can be waited on', () => {
+  let state = newGame(['A', 'B', 'C']);
+  assert.equal(awaitingAction(state), false); // round_over before the first deal
+  state = startRound(state, 909);
+  if (state.phase === 'playing') assert.equal(awaitingAction(state), true);
+
+  const finished = { ...state, phase: 'game_over' as const };
+  assert.equal(awaitingAction(finished), false);
+  // Nothing to time out once the game is over, so the clock must not be armed.
+  assert.throws(() => applyTurnTimeout(finished), /nothing to time out/);
+});
+
+test('poverty decisions left unanswered fold', () => {
+  let state = newGame(['A', 'B', 'C']);
+  // Put one player on the brink so the next deal opens with poverty.
+  state.players[0].penalty = state.targetPoints - 1;
+  state = startRound(state, 2024);
+  if (state.phase !== 'poverty') return;
+
+  const undecided = pendingPovertySeats(state);
+  assert.ok(undecided.length > 0);
+
+  state = applyTurnTimeout(state);
+
+  for (const seat of undecided) {
+    const p = state.players.find((pl) => pl.seat === seat)!;
+    assert.ok(p.folded, `seat ${seat} should have folded`);
+    assert.equal(p.foldPenalty, 1);
+  }
 });

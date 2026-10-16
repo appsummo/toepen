@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Card, GameView, ChatMessage, Identity, ShownCard, ViewPlayer } from '../types.js';
 import { PlayingCard } from '../components/PlayingCard.js';
@@ -23,6 +24,23 @@ function tally(n: number): string {
   const ones = n % 5;
   if (ones > 0) groups.push(TALLY_ONE.repeat(ones));
   return groups.join(' ') || '·';
+}
+
+/**
+ * Whether this player is one of the people currently being waited on. In a
+ * knock or a poverty round that is everyone who has not answered yet, not just
+ * whoever holds the turn.
+ */
+function isOnTheClock(game: GameView, p: ViewPlayer): boolean {
+  if (p.eliminated || p.folded) return false;
+  if (game.phase === 'playing') return game.turnSeat === p.seat;
+  if (game.phase === 'knock') {
+    return !!game.pendingKnock && game.pendingKnock.responses[p.seat] == null;
+  }
+  if (game.phase === 'poverty') {
+    return p.inRound && p.penalty < game.targetPoints - 1;
+  }
+  return false;
 }
 
 function statusOf(game: GameView, p: ViewPlayer): { text: string; tone: 'knock' | 'fold' | 'turn' | 'idle' } {
@@ -65,6 +83,62 @@ function PlayedPile({ cards, size = 'sm' }: { cards: ShownCard[]; size?: 'sm' | 
   );
 }
 
+/**
+ * Seconds left on the server's clock, ticking once a second.
+ *
+ * The deadline is the server's wall clock, so it is read against the server's
+ * own `now` from the same snapshot rather than the browser's: a device whose
+ * clock is minutes off would otherwise show a countdown that is wrong by that
+ * much, or already expired.
+ */
+function useSecondsLeft(deadline: number | null | undefined, serverNow: number | undefined): number | null {
+  const [, tick] = useState(0);
+  // The offset is measured once per snapshot and then held. Recomputing it on
+  // every render would cancel out the passage of time exactly - the two
+  // Date.now() calls subtract away and the countdown freezes.
+  const skewRef = useRef(0);
+  const measuredAtRef = useRef<number | undefined>(undefined);
+  if (serverNow !== undefined && serverNow !== measuredAtRef.current) {
+    measuredAtRef.current = serverNow;
+    skewRef.current = serverNow - Date.now();
+  }
+
+  useEffect(() => {
+    if (!deadline) return;
+    const id = setInterval(() => tick((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, [deadline]);
+
+  if (!deadline) return null;
+  return Math.max(0, Math.ceil((deadline - (Date.now() + skewRef.current)) / 1000));
+}
+
+function Countdown({ seconds }: { seconds: number }) {
+  // Only worth shouting about once it is nearly up.
+  const urgent = seconds <= 5;
+  return (
+    <span
+      title="Bedenktijd"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minWidth: 34,
+        padding: '1px 8px',
+        borderRadius: 999,
+        fontVariantNumeric: 'tabular-nums',
+        fontWeight: 700,
+        fontSize: 13,
+        color: urgent ? '#fff' : 'var(--parchment)',
+        background: urgent ? 'var(--red)' : 'rgba(0,0,0,0.35)',
+        border: `1px solid ${urgent ? 'var(--red-bright)' : 'rgba(201,143,61,0.35)'}`,
+      }}
+    >
+      {seconds}s
+    </span>
+  );
+}
+
 const toneColor: Record<string, string> = {
   knock: 'var(--gold-soft)',
   fold: '#c98f8f',
@@ -77,6 +151,7 @@ export function GameTable({ game, messages, identity, send }: Props) {
   const opponents = game.players.filter((p) => p.id !== identity.playerId);
   const trick = game.currentTrick ?? [];
   const seatName = (seat: number) => game.players.find((p) => p.seat === seat)?.name ?? '?';
+  const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
 
   return (
     <div style={{ height: '100vh', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 340px' }}>
@@ -136,7 +211,10 @@ export function GameTable({ game, messages, identity, send }: Props) {
                   {p.name}
                   {game.dealerSeat === p.seat && <span title="gever" style={{ marginLeft: 6 }}>🃏</span>}
                 </div>
-                <div style={{ fontSize: 13, color: toneColor[st.tone], fontWeight: 600 }}>{st.text}</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 13, color: toneColor[st.tone], fontWeight: 600 }}>{st.text}</span>
+                  {secondsLeft !== null && isOnTheClock(game, p) && <Countdown seconds={secondsLeft} />}
+                </div>
                 <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.55)', marginTop: 2 }}>{p.penalty} pnt</div>
                 <PlayedPile cards={p.played} />
               </div>
@@ -191,7 +269,7 @@ export function GameTable({ game, messages, identity, send }: Props) {
           <RoundOverlay game={game} identity={identity} send={send} seatName={seatName} />
         )}
         {you?.mustRespondKnock && <KnockOverlay game={game} send={send} seatName={seatName} />}
-        {you?.mustDecidePoverty && <PovertyOverlay send={send} />}
+        {you?.mustDecidePoverty && <PovertyOverlay game={game} send={send} />}
       </div>
 
       {/* Chat side */}
@@ -243,6 +321,7 @@ function Standings({ game, identity }: { game: GameView; identity: Identity }) {
 function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
   const you = game.you;
   const yourSeat = game.players.find((p) => p.isYou);
+  const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
   if (!you) return null;
   const legalIds = new Set(you.legalCards.map((c) => c.suit + c.rank));
   const isLegal = (c: Card) => legalIds.has(c.suit + c.rank);
@@ -275,8 +354,9 @@ function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
         {you.isMyTurn && game.phase === 'playing' && (
-          <span style={{ fontFamily: 'var(--hand)', fontSize: 22, color: 'var(--gold-soft)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontFamily: 'var(--hand)', fontSize: 22, color: 'var(--gold-soft)' }}>
             Jij bent aan de beurt
+            {secondsLeft !== null && <Countdown seconds={secondsLeft} />}
           </span>
         )}
         {you.canKnock && (
@@ -303,12 +383,18 @@ function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
 function KnockOverlay({ game, send, seatName }: { game: GameView; send: (m: any) => void; seatName: (s: number) => string }) {
   const knocker = game.pendingKnock ? seatName(game.pendingKnock.knockerSeat) : '';
   const newStake = game.pendingKnock?.newStake ?? 2;
+  const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
   return (
     <Overlay>
       <div style={{ fontFamily: 'var(--hand)', fontSize: 30, color: 'var(--gold-soft)' }}>{knocker} heeft getoept!</div>
       <p style={{ color: 'var(--parchment)', margin: '8px 0 20px' }}>
         Ga je mee voor <strong>{newStake} punten</strong>, of vouw je voor {newStake - 1}?
       </p>
+      {secondsLeft !== null && (
+        <p style={{ color: 'rgba(247,242,230,0.7)', margin: '-10px 0 16px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Countdown seconds={secondsLeft} /> anders vouw je automatisch
+        </p>
+      )}
       <div style={{ display: 'flex', gap: 14 }}>
         <button className="btn btn-primary" style={{ fontSize: 17, padding: '0.8rem 2rem' }} onClick={() => send({ type: 'respond', response: 'call' })}>
           Mee
@@ -321,13 +407,19 @@ function KnockOverlay({ game, send, seatName }: { game: GameView; send: (m: any)
   );
 }
 
-function PovertyOverlay({ send }: { send: (m: any) => void }) {
+function PovertyOverlay({ game, send }: { game: GameView; send: (m: any) => void }) {
+  const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
   return (
     <Overlay>
       <div style={{ fontFamily: 'var(--hand)', fontSize: 30, color: 'var(--gold-soft)' }}>Armoede aan tafel</div>
       <p style={{ color: 'var(--parchment)', margin: '8px 0 20px', maxWidth: 360, textAlign: 'center' }}>
         Iemand staat op het randje. Speel je mee (verlies = 2 punten) of vouw je veilig (1 punt)?
       </p>
+      {secondsLeft !== null && (
+        <p style={{ color: 'rgba(247,242,230,0.7)', margin: '-10px 0 16px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Countdown seconds={secondsLeft} /> anders vouw je automatisch
+        </p>
+      )}
       <div style={{ display: 'flex', gap: 14 }}>
         <button className="btn btn-primary" style={{ fontSize: 17, padding: '0.8rem 2rem' }} onClick={() => send({ type: 'poverty', decision: 'play' })}>
           Meespelen

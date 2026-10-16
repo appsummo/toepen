@@ -8,6 +8,8 @@ import {
   respondKnock,
   povertyDecide,
   dirtyLaundry,
+  applyTurnTimeout,
+  awaitingAction,
 } from '../engine/engine.js';
 import type { Card } from '../engine/cards.js';
 import type { EngineState } from '../engine/types.js';
@@ -21,6 +23,9 @@ interface Conn {
 
 const rooms = new Map<string, Set<Conn>>();
 const locks = new Map<string, Promise<unknown>>();
+// One pending turn-timer per game. The clock lives on the server: a client
+// countdown is only a display of the deadline it was handed.
+const timers = new Map<string, NodeJS.Timeout>();
 
 function seed(): number {
   return (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
@@ -44,11 +49,18 @@ export function register(gameId: string, playerId: string, ws: WebSocket): Conn 
   const conn: Conn = { ws, playerId };
   if (!rooms.has(gameId)) rooms.set(gameId, new Set());
   rooms.get(gameId)!.add(conn);
+  // A redeploy drops every in-memory timer. The first player back at the table
+  // rearms it from the stored deadline, so a restart cannot strand a game.
+  if (!timers.has(gameId)) void scheduleTimer(gameId);
   return conn;
 }
 
 export function unregister(gameId: string, conn: Conn): void {
-  rooms.get(gameId)?.delete(conn);
+  const conns = rooms.get(gameId);
+  conns?.delete(conn);
+  // With the table empty there is nobody to be kept waiting, so stop the clock
+  // rather than playing the round out to an audience of nobody.
+  if (conns && conns.size === 0) clearTimer(gameId);
 }
 
 function send(ws: WebSocket, payload: unknown): void {
@@ -90,6 +102,55 @@ function broadcastRaw(gameId: string, payload: unknown): void {
   const conns = rooms.get(gameId);
   if (!conns) return;
   for (const conn of conns) send(conn.ws, payload);
+}
+
+// ---- turn clock ---------------------------------------------------------
+
+/**
+ * Stamp the state with the moment the players now on the clock run out of time.
+ * Any action restarts the clock, so whoever is waited on next always gets the
+ * full think time rather than the remains of someone else's.
+ */
+function withDeadline(state: EngineState, thinkSeconds: number): EngineState {
+  return {
+    ...state,
+    turnDeadline: awaitingAction(state) ? Date.now() + thinkSeconds * 1000 : null,
+  };
+}
+
+function clearTimer(gameId: string): void {
+  const timer = timers.get(gameId);
+  if (timer) clearTimeout(timer);
+  timers.delete(gameId);
+}
+
+/**
+ * Arm the timer for whatever the persisted state says is due. Because the
+ * deadline is stored with the state rather than held only in memory, a server
+ * restart does not hand everyone unlimited time: rescheduling after a redeploy
+ * picks the deadline back up, and one already in the past fires at once.
+ */
+async function scheduleTimer(gameId: string): Promise<void> {
+  clearTimer(gameId);
+  const game = await repo.getGameById(gameId);
+  const deadline = game?.state?.turnDeadline;
+  if (!game || !deadline || !game.state || !awaitingAction(game.state)) return;
+  const delay = Math.max(0, deadline - Date.now());
+  timers.set(
+    gameId,
+    setTimeout(() => void onTimeout(gameId), delay + 50),
+  );
+}
+
+async function onTimeout(gameId: string): Promise<void> {
+  timers.delete(gameId);
+  try {
+    await mutateEngine(gameId, (state) => applyTurnTimeout(state));
+  } catch (err) {
+    // Leave the clock stopped rather than retrying into a hot loop; the next
+    // player action reschedules it.
+    console.error(`[toepen] turn timeout failed for game ${gameId}`, err);
+  }
 }
 
 // ---- action handlers ----------------------------------------------------
@@ -156,10 +217,11 @@ export async function handleStart(gameId: string, playerId: string): Promise<voi
     );
     // Random first dealer.
     engine.dealerSeat = players[Math.floor(Math.random() * players.length)].seat;
-    engine = startRound(engine, seed());
+    engine = withDeadline(startRound(engine, seed()), game.think_seconds);
     await repo.saveState(gameId, 'playing', engine);
   });
   await systemChat(gameId, 'Het potje is begonnen! 🍺');
+  await scheduleTimer(gameId);
   await broadcast(gameId);
 }
 
@@ -171,12 +233,13 @@ async function mutateEngine(
   await withLock(gameId, async () => {
     const game = await repo.getGameById(gameId);
     if (!game || !game.state) throw new Error('game not in progress');
-    const next = fn(game.state);
+    const next = withDeadline(fn(game.state), game.think_seconds);
     const status = next.phase === 'game_over' ? 'finished' : 'playing';
     await repo.saveState(gameId, status, next);
     if (status === 'finished') finishedState = next;
   });
   if (finishedState) await recordResults(gameId, finishedState);
+  await scheduleTimer(gameId);
   await broadcast(gameId);
 }
 
@@ -261,8 +324,9 @@ export async function handleNextRound(gameId: string, playerId: string): Promise
     if (!game || !game.state) throw new Error('game not in progress');
     if (game.state.phase !== 'round_over') throw new Error('round not finished');
     // The dealer (round winner) starts the next deal; anyone at the table may trigger it.
-    const next = startRound(game.state, seed());
+    const next = withDeadline(startRound(game.state, seed()), game.think_seconds);
     await repo.saveState(gameId, 'playing', next);
   });
+  await scheduleTimer(gameId);
   await broadcast(gameId);
 }
