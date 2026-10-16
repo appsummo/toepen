@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import * as repo from './db/repo.js';
 import { optionalAuth } from './auth/middleware.js';
+import { createGameLimiter } from './security.js';
 
 export const router = Router();
 
@@ -11,7 +12,7 @@ function cleanName(raw: unknown): string {
 }
 
 // Create a new game + host player. Associates the account when logged in.
-router.post('/games', optionalAuth, async (req: Request, res: Response) => {
+router.post('/games', createGameLimiter, optionalAuth, async (req: Request, res: Response) => {
   const name = cleanName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Naam is verplicht' });
 

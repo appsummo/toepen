@@ -1,0 +1,25 @@
+# Caddy obtains and renews a Let's Encrypt certificate for $DOMAIN on its own,
+# which is what gives the site https:// and wss:// with no manual cert work.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	# WebSockets need no special handling here: reverse_proxy upgrades them,
+	# and nginx behind it already passes the Upgrade headers through.
+	reverse_proxy web:80
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

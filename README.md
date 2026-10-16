@@ -83,6 +83,82 @@ cd server && npm install && npm run dev
 cd web && npm install && npm run dev
 ```
 
+## Deploy to a server
+
+The production stack adds Caddy in front, which obtains and renews a Let's
+Encrypt certificate automatically — that is what gives the site `https://` and
+`wss://` without any manual certificate work.
+
+```
+caddy :80/:443  →  web (nginx :80)  →  server :3001  →  db :5432
+```
+
+Unlike `docker-compose.yml` (local development, HTTP, default passwords), the
+production file has **no default credentials** and does not publish Postgres to
+the host. Every value comes from `.env`.
+
+**1. Point DNS at the host.** Create an `A` record for your domain aimed at the
+server's public IP, and open ports 80 and 443. Caddy cannot complete the ACME
+challenge until the domain resolves to this machine.
+
+**2. Configure secrets** on the server:
+
+```bash
+cp .env.example .env
+openssl rand -base64 24   # → POSTGRES_PASSWORD
+openssl rand -hex 32      # → JWT_SECRET
+$EDITOR .env              # also set DOMAIN and ACME_EMAIL
+```
+
+Generate these **on the server**; never commit `.env` (it is git-ignored).
+`JWT_SECRET` signs login tokens — anyone who learns it can forge any account,
+and changing it later logs everyone out. The server refuses to start in
+production without it.
+
+**3. Bring it up:**
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml logs -f caddy   # watch the cert issue
+```
+
+The site is then live at `https://<DOMAIN>`. The schema is created on first
+start by `db/init.sql`, and `server/src/db/migrate.ts` runs idempotent
+migrations on every boot, so deploys need no manual database step.
+
+**Update to a new version:**
+
+```bash
+git pull && docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Players are disconnected only briefly: the server finishes in-flight requests on
+`SIGTERM`, game state lives in Postgres, and the clients reconnect on their own.
+
+**Back up the database** — it holds the accounts and game history:
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db \
+  pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > toepen-$(date +%F).sql.gz
+```
+
+### What is hardened
+
+- TLS with automatic renewal; HSTS, `nosniff` and referrer policy headers.
+- Rate limits: 300 req/min across the API, 20 failed logins per 15 min, 30 new
+  tables per 10 min. The server trusts exactly two proxy hops so limits key on
+  the real client IP.
+- CORS is same-origin by default; add extra origins to `CORS_ORIGINS` only if
+  something outside the site needs the API.
+- Postgres is not reachable from outside the compose network, and the server
+  container runs as a non-root user.
+- Images build from committed lockfiles (`npm ci`), so a rebuild ships exactly
+  the versions that were tested.
+
+> The mobile app is **not** part of this stack. It is a separate store-published
+> client; point its server URL at the same domain once it is deployed. See
+> [`mobile/README.md`](./mobile/README.md).
+
 ## Game rules implemented
 
 Piquet deck (32 cards), rank low→high **J Q K A 7 8 9 10**, follow-suit trick
