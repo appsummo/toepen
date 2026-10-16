@@ -1,0 +1,333 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { freshDeck, cardId } from '../src/engine/cards.ts';
+import {
+  createEngine,
+  startRound,
+  playCard,
+  knock,
+  respondKnock,
+  legalCards,
+  canKnock,
+  inRoundSeats,
+  povertyDecide,
+} from '../src/engine/engine.ts';
+import type { EngineState } from '../src/engine/types.ts';
+
+function newGame(names = ['A', 'B', 'C', 'D']) {
+  const seats = names.map((name, i) => ({
+    id: `p${i}`,
+    seat: i,
+    name,
+    penalty: 0,
+    eliminated: false,
+  }));
+  return createEngine(seats, { targetPoints: 10, dirtyLaundryEnabled: true });
+}
+
+// Drive a full round by always playing each player's first legal card.
+function autoPlayRound(state: EngineState): EngineState {
+  let guard = 0;
+  while (state.phase === 'playing' && guard++ < 100) {
+    const seat = state.turnSeat;
+    const card = legalCards(state, seat)[0];
+    state = playCard(state, seat, card);
+  }
+  return state;
+}
+
+test('fresh deck is 32 unique piquet cards', () => {
+  const deck = freshDeck();
+  assert.equal(deck.length, 32);
+  assert.equal(new Set(deck.map(cardId)).size, 32);
+});
+
+test('deals four cards to each active player', () => {
+  let state = newGame();
+  state = startRound(state, 12345);
+  for (const p of state.players) assert.equal(p.hand.length, 4);
+  assert.ok(state.phase === 'playing' || state.phase === 'round_over');
+});
+
+test('a full round resolves and assigns exactly one round winner', () => {
+  let state = newGame();
+  state = startRound(state, 999);
+  if (state.phase === 'playing') state = autoPlayRound(state);
+  assert.ok(state.phase === 'round_over' || state.phase === 'game_over');
+  assert.notEqual(state.winnerSeat, null);
+  // Total penalty applied equals stake times number of non-winner in-round losers
+  // (special hands excepted); at minimum the winner gained no penalty this round.
+});
+
+test('players must follow suit when able', () => {
+  let state = newGame();
+  state = startRound(state, 42);
+  if (state.phase !== 'playing') return; // skip if instant-win deal
+  const leader = state.turnSeat;
+  const first = legalCards(state, leader)[0];
+  state = playCard(state, leader, first);
+  const next = state.turnSeat;
+  const legal = legalCards(state, next);
+  const hasLeadSuit = state.players
+    .find((p) => p.seat === next)!
+    .hand.some((c) => c.suit === state.leadSuit);
+  if (hasLeadSuit) {
+    assert.ok(legal.every((c) => c.suit === state.leadSuit));
+  }
+});
+
+test('knock raises the stake and folding removes a player from the round', () => {
+  let state = newGame();
+  state = startRound(state, 7);
+  if (state.phase !== 'playing') return;
+  const knocker = state.turnSeat;
+  assert.ok(canKnock(state, knocker));
+  state = knock(state, knocker);
+  assert.equal(state.phase, 'knock');
+  assert.equal(state.pendingKnock?.newStake, 2);
+
+  const responders = Object.keys(state.pendingKnock!.responses).map(Number);
+  // First responder folds, the rest call.
+  state = respondKnock(state, responders[0], 'fold');
+  for (const s of responders.slice(1)) {
+    if (state.phase === 'knock') state = respondKnock(state, s, 'call');
+  }
+  if (state.phase === 'playing') {
+    assert.equal(state.stake, 2);
+    assert.ok(!inRoundSeats(state).includes(responders[0]));
+  }
+});
+
+test('cannot re-knock yourself twice in a row', () => {
+  let state = newGame();
+  state = startRound(state, 7);
+  if (state.phase !== 'playing') return;
+  const knocker = state.turnSeat;
+  state = knock(state, knocker);
+  const responders = Object.keys(state.pendingKnock!.responses).map(Number);
+  for (const s of responders) if (state.phase === 'knock') state = respondKnock(state, s, 'call');
+  if (state.phase === 'playing') {
+    assert.equal(canKnock(state, knocker), false);
+  }
+});
+
+test('game ends when only one player remains', () => {
+  let state = newGame(['A', 'B']);
+  // Push B to the brink by simulating many rounds.
+  let guard = 0;
+  while (state.phase !== 'game_over' && guard++ < 200) {
+    if (state.phase === 'round_over') state = startRound(state, 1000 + guard);
+    // In poverty, everyone who can decide chooses to play so rounds keep resolving.
+    while (state.phase === 'poverty') {
+      const decider = state.players.find(
+        (p) => !p.eliminated && p.inRound && p.penalty < state.targetPoints - 1,
+      );
+      if (!decider) break;
+      state = povertyDecide(state, decider.seat, 'play');
+    }
+    if (state.phase === 'playing') state = autoPlayRound(state);
+  }
+  assert.equal(state.phase, 'game_over');
+  assert.notEqual(state.gameWinnerSeat, null);
+});
+
+// Build a three-player final trick in which seat 0 plays the winning card and
+// then folds to seat 1's knock. Hands and scores are pinned so the outcome does
+// not depend on the deal.
+function finalTrickWithFolder(): EngineState {
+  let state = newGame(['A', 'B', 'C']);
+  state.dealerSeat = 2;
+  state = startRound(state, 1234);
+  state = structuredClone(state);
+  for (const p of state.players) {
+    p.penalty = 0;
+    p.eliminated = false;
+    p.inRound = true;
+    p.folded = false;
+    p.foldPenalty = 0;
+  }
+  state.phase = 'playing';
+  state.trickNumber = 3; // the last trick — its winner takes the round
+  state.currentTrick = [];
+  state.leadSuit = null;
+  state.turnSeat = 0;
+  state.stake = 1;
+  state.lastKnockerSeat = null;
+  state.pendingKnock = null;
+  state.winnerSeat = null;
+  state.players[0].hand = [{ suit: 'C', rank: '10' }]; // strongest card on the table
+  state.players[1].hand = [{ suit: 'C', rank: '9' }];
+  state.players[2].hand = [{ suit: 'C', rank: '8' }];
+
+  state = playCard(state, 0, { suit: 'C', rank: '10' });
+  state = knock(state, 1);
+  state = respondKnock(state, 0, 'fold'); // folds having already played
+  state = respondKnock(state, 2, 'call');
+  return state;
+}
+
+test('a player who folds after playing cannot win the trick or the round', () => {
+  let state = finalTrickWithFolder();
+  state = playCard(state, 1, { suit: 'C', rank: '9' });
+  state = playCard(state, 2, { suit: 'C', rank: '8' });
+
+  assert.equal(state.phase, 'round_over');
+  // Seat 0 played the 10 but folded, so the round goes to the best card still
+  // on the table — and seat 0 pays the penalty locked in when they folded.
+  assert.equal(state.winnerSeat, 1);
+  assert.ok(state.players[0].folded);
+  assert.equal(state.players[0].penalty, 1);
+  assert.equal(state.players[1].penalty, 0); // round winner
+  assert.equal(state.players[2].penalty, 2); // called and lost at stake 2
+});
+
+test('the trick still waits for every remaining contender after a fold', () => {
+  const state = finalTrickWithFolder();
+  // The folder's card left the table with them, so the trick is short again:
+  // both B and C still owe a card.
+  assert.equal(state.phase, 'playing');
+  assert.equal(state.currentTrick.length, 0);
+  assert.equal(state.leadSuit, null);
+  assert.equal(state.turnSeat, 1);
+
+  const afterB = playCard(state, 1, { suit: 'C', rank: '9' });
+  assert.equal(afterB.phase, 'playing'); // C must still get to play
+  assert.equal(afterB.turnSeat, 2);
+});
+
+test('the lead suit shifts when the opening player folds mid-trick', () => {
+  let state = newGame(['A', 'B', 'C']);
+  state = startRound(state, 4242);
+  state = structuredClone(state);
+  for (const p of state.players) {
+    p.penalty = 0;
+    p.eliminated = false;
+    p.inRound = true;
+    p.folded = false;
+    p.foldPenalty = 0;
+  }
+  state.phase = 'playing';
+  state.trickNumber = 0;
+  state.currentTrick = [];
+  state.leadSuit = null;
+  state.turnSeat = 0;
+  state.stake = 1;
+  state.lastKnockerSeat = null;
+  state.pendingKnock = null;
+  // A leads hearts; B cannot follow and discards a club.
+  state.players[0].hand = [{ suit: 'H', rank: 'A' }, { suit: 'H', rank: 'K' }];
+  state.players[1].hand = [{ suit: 'C', rank: 'J' }, { suit: 'C', rank: 'Q' }];
+  state.players[2].hand = [{ suit: 'S', rank: '7' }, { suit: 'S', rank: '8' }];
+
+  state = playCard(state, 0, { suit: 'H', rank: 'A' });
+  state = playCard(state, 1, { suit: 'C', rank: 'J' });
+  state = knock(state, 2);
+  state = respondKnock(state, 0, 'fold'); // the leader withdraws their hearts
+  state = respondKnock(state, 1, 'call');
+
+  // Hearts are gone, so B's club now leads and resolution must not crash.
+  assert.equal(state.leadSuit, 'C');
+  state = playCard(state, 2, { suit: 'S', rank: '7' });
+  assert.equal(state.lastTrickWinnerSeat, 1);
+  assert.equal(state.turnSeat, 1);
+});
+
+// The server persists the engine state as JSON (a JSONB column), so anything the
+// engine relies on must survive a round trip. `undefined` does not.
+function persistRoundTrip(state: EngineState): EngineState {
+  return JSON.parse(JSON.stringify(state)) as EngineState;
+}
+
+test('a pending knock survives being persisted as JSON', () => {
+  let state = newGame(['A', 'B', 'C']);
+  state = startRound(state, 77);
+  if (state.phase !== 'playing') return;
+
+  const knocker = state.turnSeat;
+  state = knock(state, knocker);
+  const asked = Object.keys(state.pendingKnock!.responses).map(Number).sort();
+  assert.equal(asked.length, 2); // the two players who are not the knocker
+
+  state = persistRoundTrip(state);
+  // The record of who still owes an answer must not be lost in the round trip.
+  assert.deepEqual(
+    Object.keys(state.pendingKnock!.responses).map(Number).sort(),
+    asked,
+  );
+
+  // ...and those players must still be able to answer.
+  state = respondKnock(state, asked[0], 'call');
+  state = respondKnock(state, asked[1], 'fold');
+  assert.equal(state.phase, 'playing');
+  assert.equal(state.stake, 2);
+});
+
+test('players are still prompted to answer a knock after a round trip', () => {
+  let state = newGame(['A', 'B', 'C']);
+  state = startRound(state, 77);
+  if (state.phase !== 'playing') return;
+
+  const knocker = state.turnSeat;
+  state = persistRoundTrip(knock(state, knocker));
+
+  for (const p of state.players) {
+    const owes = p.seat !== knocker;
+    assert.equal(
+      p.seat in state.pendingKnock!.responses,
+      owes,
+      `seat ${p.seat} should ${owes ? '' : 'not '}be asked to respond`,
+    );
+  }
+});
+
+test('cards played stay face up per player for the whole round', () => {
+  let state = newGame(['A', 'B', 'C']);
+  state = startRound(state, 31337);
+  if (state.phase !== 'playing') return;
+  for (const p of state.players) assert.equal(p.played.length, 0);
+
+  // Play one full trick: the centre clears, but the piles must not.
+  const firstTrick: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const seat = state.turnSeat;
+    const card = legalCards(state, seat)[0];
+    firstTrick.push(cardId(card));
+    state = playCard(state, seat, card);
+  }
+  assert.equal(state.currentTrick.length, 0, 'the centre of the table clears');
+  assert.deepEqual(
+    state.players.flatMap((p) => p.played.map((s) => cardId(s.card))).sort(),
+    [...firstTrick].sort(),
+    'but every card played is still shown in its owner pile',
+  );
+  for (const p of state.players) {
+    assert.equal(p.played.length, 1);
+    assert.equal(p.played[0].trick, 0);
+  }
+
+  // Play the round out: each player's pile ends up holding all four of its cards.
+  state = autoPlayRound(state);
+  for (const p of state.players) {
+    assert.equal(p.played.length, 4);
+    assert.deepEqual(p.played.map((s) => s.trick), [0, 1, 2, 3]);
+  }
+  // Nothing is shown twice, and the whole round is 12 distinct cards.
+  const all = state.players.flatMap((p) => p.played.map((s) => cardId(s.card)));
+  assert.equal(new Set(all).size, all.length);
+
+  // A new deal wipes the table.
+  state = startRound(state, 31338);
+  for (const p of state.players) assert.equal(p.played.length, 0);
+});
+
+test('a card withdrawn from the trick on a fold stays visible in its pile', () => {
+  const state = finalTrickWithFolder();
+  const folder = state.players[0];
+  assert.ok(folder.folded);
+  assert.equal(state.currentTrick.length, 0, 'withdrawn from the contested trick');
+  assert.deepEqual(
+    folder.played.map((s) => cardId(s.card)),
+    ['C10'],
+    'but the table already saw it, so it stays countable',
+  );
+});

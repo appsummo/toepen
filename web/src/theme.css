@@ -1,0 +1,155 @@
+:root {
+  /* Brown café palette extracted from the design mockups */
+  --bg-1: #31200f;
+  --bg-2: #1e1207;
+  --bg-3: #271808;
+  --parchment: #f7f2e6;
+  --parchment-2: #f2e8d5;
+  --parchment-3: #efe9df;
+  --cream-line: #e4d7bd;
+  --gold: #c98f3d;
+  --gold-bright: #e8b25c;
+  --gold-soft: #f0c884;
+  --gold-deep: #8a5a22;
+  --red: #b3402e;
+  --red-bright: #c44c38;
+  --ink: #221305;
+  --ink-soft: #2a241c;
+  --muted: #9d8c6c;
+  --muted-2: #7d6c50;
+  --felt: #4f7a68;
+  --felt-deep: #243029;
+  --felt-line: #8fb59d;
+  --wood-edge: #7a2f20;
+
+  --serif: 'Libre Caslon Text', Georgia, serif;
+  --sans: 'Karla', -apple-system, BlinkMacSystemFont, sans-serif;
+  --hand: 'Caveat', cursive;
+
+  --radius: 14px;
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(201, 143, 61, 0.12), transparent 60%),
+    linear-gradient(175deg, var(--bg-1), var(--bg-2));
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: var(--sans);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input {
+  font-family: var(--sans);
+}
+
+/* ---- shared building blocks ---- */
+
+.wordmark {
+  font-family: var(--serif);
+  letter-spacing: 0.28em;
+  color: var(--gold-soft);
+  font-weight: 700;
+}
+
+.suits {
+  color: var(--gold);
+  letter-spacing: 0.15em;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.5rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1rem;
+  transition: transform 0.08s ease, filter 0.15s ease, background 0.15s ease;
+  border: 1px solid transparent;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+  color: #3a2408;
+  box-shadow: 0 6px 16px rgba(201, 143, 61, 0.35);
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.btn-ghost {
+  background: rgba(247, 242, 230, 0.08);
+  color: var(--parchment);
+  border: 1px solid rgba(247, 242, 230, 0.22);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(247, 242, 230, 0.16);
+}
+.btn-red {
+  background: linear-gradient(180deg, var(--red-bright), var(--red));
+  color: #fff1ec;
+}
+.btn-felt {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--felt-deep);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.parchment {
+  background: linear-gradient(180deg, var(--parchment), var(--parchment-2));
+  border: 1px solid var(--cream-line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+.label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted-2);
+  font-weight: 700;
+}
+
+.scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(201, 143, 61, 0.4);
+  border-radius: 8px;
+}

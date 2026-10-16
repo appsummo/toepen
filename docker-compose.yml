@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: toepen-db
+    environment:
+      POSTGRES_USER: toepen
+      POSTGRES_PASSWORD: toepen
+      POSTGRES_DB: toepen
+    ports:
+      - "5432:5432"
+    volumes:
+      - toepen-db-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toepen -d toepen"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build: ./server
+    container_name: toepen-server
+    environment:
+      DATABASE_URL: postgres://toepen:toepen@db:5432/toepen
+      PORT: "3001"
+      NODE_ENV: production
+      # Change this before exposing the server publicly. Sign key for auth (JWT).
+      JWT_SECRET: ${JWT_SECRET:-toepen-local-dev-secret-change-me}
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    container_name: toepen-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  toepen-db-data:

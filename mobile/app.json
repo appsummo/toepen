@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Toepen",
+    "slug": "toepen",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "toepen",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#31200f",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.toepen.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.toepen.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#31200f",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#31200f"
+        }
+      ]
+    ],
+    "extra": {
+      "serverUrl": "http://localhost:3001",
+      "eas": {
+        "projectId": "59ac00c5-8da2-4989-a24f-6481ee8fe063"
+      }
+    }
+  }
+}
