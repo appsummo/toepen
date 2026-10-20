@@ -19,11 +19,7 @@ web-build/
 *.mobileprovision
 play-service-account.json
 
-# mobile build artefacts and generated native projects
-.expo/
-expo-env.d.ts
-mobile/ios/
-mobile/android/
+# leftovers from the removed native client, in case one is ever rebuilt here
 *.ipa
 *.aab
 *.apk
