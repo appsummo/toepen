@@ -1,7 +1,7 @@
 # Production stack. Two shapes, one file:
 #
-# A. Host already runs a web server (our case: nginx serving other-site.example).
-#    The stack binds nothing public; the host's nginx proxies to it.
+# A. Host already runs a web server (nginx serving some other site). The stack
+#    binds nothing public; the host's nginx proxies to it.
 #
 #      host nginx :443  ->  127.0.0.1:8080 (web)  ->  server :3001  ->  db :5432
 #      docker compose -f docker-compose.prod.yml up -d --build

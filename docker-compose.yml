@@ -23,8 +23,11 @@ services:
     environment:
       DATABASE_URL: postgres://toepen:toepen@db:5432/toepen
       PORT: "3001"
-      NODE_ENV: production
-      # Change this before exposing the server publicly. Sign key for auth (JWT).
+      # Deliberately NOT production: this file has a known password and a known
+      # signing key, and in production the server refuses to start without a
+      # real JWT_SECRET. That guard should fire for anyone who points this file
+      # at a public box, instead of the fallback below quietly satisfying it.
+      NODE_ENV: development
       JWT_SECRET: ${JWT_SECRET:-toepen-local-dev-secret-change-me}
     ports:
       - "3001:3001"

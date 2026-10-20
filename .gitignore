@@ -23,8 +23,10 @@ play-service-account.json
 *.ipa
 *.aab
 *.apk
-# the removed Expo client's working directory, if it is still on a disk here
-mobile/
+
+# host-specific notes: the public runbook uses placeholders, this holds the
+# real addresses, paths and neighbouring services
+docs/*.local.md
 
 # logs and OS cruft
 *.log
