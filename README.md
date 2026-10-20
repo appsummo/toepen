@@ -2,8 +2,11 @@
 
 An online, real-time version of the Dutch café card game **Toepen**. Create a
 table, share the game code, and bluff your friends out of the round — with a
-live chat (*Stamtafel*) tied to every game. Play from the **web app** or the
-**native iOS/Android app** — everyone joins the same live game across devices.
+live chat (*Stamtafel*) tied to every game. It is a web app, and the same page
+plays on a phone — everyone joins the same live game across devices.
+
+The interface is available in **Dutch and English**; players pick their own
+language and sit at the same table, each reading it in theirs.
 
 Styled after a brown-café aesthetic (warm wood, parchment cards, green felt).
 
@@ -12,14 +15,17 @@ Styled after a brown-café aesthetic (warm wood, parchment cards, green felt).
 | Service | Tech | Port |
 |---------|------|------|
 | `web`    | React + Vite + TypeScript, served by nginx | **8080** (the app) |
-| `mobile` | React Native (Expo SDK 57) — iOS + Android | (see `mobile/`) |
 | `server` | Node + TypeScript, Express (REST) + `ws` (WebSocket) | **3001** |
 | `db`     | PostgreSQL 16 | **5432** |
 
 The browser talks to a single origin (`:8080`); nginx proxies `/api` and `/ws`
-to the backend. The mobile app talks to the same REST/WebSocket API at a
-configurable server URL. Game state is authoritative on the server and persisted
-to Postgres as a JSONB snapshot per game.
+to the backend. Game state is authoritative on the server and persisted to
+Postgres as a JSONB snapshot per game.
+
+The server never sends a finished sentence to a client. Round-log lines travel
+as `{kind, params}` and errors as codes, so each browser renders them in its own
+language (`web/src/i18n`). Dutch is the source of truth: `en.ts` is typed
+against it, so a missing translation is a compile error.
 
 ## Accounts
 
@@ -30,19 +36,20 @@ Players can register an account (username + password). Accounts add:
 - **Reconnect** — a logged-in player rejoining a table gets their existing seat
   back instead of a duplicate.
 
-Auth is JWT-based (`server/src/auth`). Guests can still create/join games without
-an account — accounts are optional on the web app and required by the mobile app.
+Auth is JWT-based (`server/src/auth`). The REST and WebSocket APIs support
+accounts, but **the web app has no login screen yet** — in the browser everyone
+plays as a guest, and guests can create and join games freely.
 
 > Set a strong `JWT_SECRET` on the server before exposing it publicly. In
 > `NODE_ENV=production` the server refuses to start without one. `docker-compose`
 > reads it from a `JWT_SECRET` env var (with a local-dev fallback).
 
-## Mobile app
+## On a phone
 
-The native app lives in [`mobile/`](./mobile). It reuses this server and
-protocol; point it at your backend's public URL and build with EAS for the App
-Store and Play Store. See [`mobile/README.md`](./mobile/README.md) for dev,
-build, and submission steps.
+There is no app to install: the web app is the mobile app. Below 900px the chat
+moves out of the layout into a drawer, below 640px the cards and table chrome
+shrink to fit, and the layout keeps clear of a notch or home indicator. A
+previous React Native client was removed in favour of this.
 
 ## Run it locally
 
@@ -192,11 +199,11 @@ docker compose -f docker-compose.prod.yml exec -T db \
 - Images build from committed lockfiles (`npm ci`), so a rebuild ships exactly
   the versions that were tested.
 
-> The mobile app is **not** part of this stack. It is a separate store-published
-> client; point its server URL at the same domain once it is deployed. See
-> [`mobile/README.md`](./mobile/README.md).
-
 ## Game rules implemented
+
+The same rules are in the app itself, in both languages, at `/regels` (or
+`/rules`) — written against what the engine actually does rather than the café
+variant, so "Chance for Toep" is deliberately absent.
 
 Piquet deck (32 cards), rank low→high **J Q K A 7 8 9 10**, follow-suit trick
 play, winner of the 4th trick wins the round. Plus:

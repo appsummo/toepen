@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 import type { Card, GameView, ChatMessage, Identity, ShownCard, ViewPlayer } from '../types.js';
 import { PlayingCard } from '../components/PlayingCard.js';
 import { Chat } from '../components/Chat.js';
+import { useI18n, useT } from '../i18n/index.js';
+import { LanguageToggle } from '../i18n/LanguageToggle.js';
+import { useIsCompact } from '../useMediaQuery.js';
+import type { TranslationKey } from '../i18n/nl.js';
 
 interface Props {
   game: GameView;
@@ -43,19 +47,29 @@ function isOnTheClock(game: GameView, p: ViewPlayer): boolean {
   return false;
 }
 
-function statusOf(game: GameView, p: ViewPlayer): { text: string; tone: 'knock' | 'fold' | 'turn' | 'idle' } {
-  if (p.eliminated) return { text: 'eruit', tone: 'fold' };
-  if (p.folded) return { text: 'gevouwen', tone: 'fold' };
-  if (game.pendingKnock && game.pendingKnock.knockerSeat === p.seat) return { text: 'heeft getoept', tone: 'knock' };
-  if (game.phase === 'playing' && game.turnSeat === p.seat) return { text: 'aan de beurt', tone: 'turn' };
+type Tone = 'knock' | 'fold' | 'turn' | 'idle';
+
+/**
+ * What to say under a player's name. Returns a key rather than a sentence, so
+ * the same logic serves whichever language the viewer picked.
+ */
+function statusOf(game: GameView, p: ViewPlayer): { key: TranslationKey; tone: Tone } {
+  if (p.eliminated) return { key: 'status.out', tone: 'fold' };
+  if (p.folded) return { key: 'status.folded', tone: 'fold' };
+  if (game.pendingKnock && game.pendingKnock.knockerSeat === p.seat) {
+    return { key: 'status.knocking', tone: 'knock' };
+  }
+  if (game.phase === 'playing' && game.turnSeat === p.seat) {
+    return { key: 'status.turn', tone: 'turn' };
+  }
   if (game.phase === 'knock' && game.pendingKnock && p.seat in game.pendingKnock.responses) {
     const r = game.pendingKnock.responses[p.seat];
-    if (r === 'call') return { text: 'gaat mee', tone: 'turn' };
-    if (r === 'fold') return { text: 'gevouwen', tone: 'fold' };
-    return { text: 'moet kiezen…', tone: 'idle' };
+    if (r === 'call') return { key: 'status.calls', tone: 'turn' };
+    if (r === 'fold') return { key: 'status.folded', tone: 'fold' };
+    return { key: 'status.choosing', tone: 'idle' };
   }
-  if (game.lastKnockerSeat === p.seat) return { text: 'toepte', tone: 'knock' };
-  return { text: 'aan tafel', tone: 'idle' };
+  if (game.lastKnockerSeat === p.seat) return { key: 'status.knocked', tone: 'knock' };
+  return { key: 'status.seated', tone: 'idle' };
 }
 
 /**
@@ -65,6 +79,7 @@ function statusOf(game: GameView, p: ViewPlayer): { text: string; tone: 'knock' 
  * compact while keeping each rank and suit readable.
  */
 function PlayedPile({ cards, size = 'sm' }: { cards: ShownCard[]; size?: 'sm' | 'md' }) {
+  const t = useT();
   if (cards.length === 0) return null;
   const PER_ROW = 4;
   const rows: ShownCard[][] = [];
@@ -78,7 +93,7 @@ function PlayedPile({ cards, size = 'sm' }: { cards: ShownCard[]; size?: 'sm' | 
             <div
               key={`${shown.card.suit}${shown.card.rank}${i}`}
               style={{ marginLeft: i === 0 ? 0 : -8 }}
-              title={`Slag ${shown.trick + 1}`}
+              title={t('table.trick', { n: shown.trick + 1 })}
             >
               <PlayingCard card={shown.card} size={size} />
             </div>
@@ -120,11 +135,12 @@ function useSecondsLeft(deadline: number | null | undefined, serverNow: number |
 }
 
 function Countdown({ seconds }: { seconds: number }) {
+  const t = useT();
   // Only worth shouting about once it is nearly up.
   const urgent = seconds <= 5;
   return (
     <span
-      title="Bedenktijd"
+      title={t('table.think')}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -145,7 +161,7 @@ function Countdown({ seconds }: { seconds: number }) {
   );
 }
 
-const toneColor: Record<string, string> = {
+const toneColor: Record<Tone, string> = {
   knock: 'var(--gold-soft)',
   fold: '#c98f8f',
   turn: 'var(--felt-line)',
@@ -153,14 +169,23 @@ const toneColor: Record<string, string> = {
 };
 
 export function GameTable({ game, messages, identity, send }: Props) {
+  const { t, tn } = useI18n();
+  const compact = useIsCompact();
+  const [chatOpen, setChatOpen] = useState(false);
   const you = game.you;
   const opponents = game.players.filter((p) => p.id !== identity.playerId);
   const trick = game.currentTrick ?? [];
   const seatName = (seat: number) => game.players.find((p) => p.seat === seat)?.name ?? '?';
   const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
 
+  // Closing the drawer on the way back to a wide screen avoids it being stuck
+  // "open" as a column that is already visible.
+  useEffect(() => {
+    if (!compact) setChatOpen(false);
+  }, [compact]);
+
   return (
-    <div style={{ height: '100vh', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 340px' }}>
+    <div className="table-shell">
       {/* Table side */}
       <div
         style={{
@@ -172,31 +197,40 @@ export function GameTable({ game, messages, identity, send }: Props) {
         }}
       >
         {/* Top bar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', zIndex: 2 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        {/* Three groups, so the stylesheet can drop the stake onto its own row
+            on a phone instead of letting the bar overflow. */}
+        <div className="table-topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 24px', zIndex: 2 }}>
+          <div className="topbar-brand" style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <span className="wordmark" style={{ fontSize: 18 }}>TOEPEN</span>
             <span className="suits" style={{ fontSize: 13 }}>♠♥♣♦</span>
           </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(247,242,230,0.6)' }}>
-              Er staat op het spel
+          <div className="topbar-stake" style={{ textAlign: 'center' }}>
+            <div className="topbar-stake-label" style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(247,242,230,0.6)' }}>
+              {t('table.stake')}
             </div>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 26, fontWeight: 700, color: 'var(--gold-soft)' }}>
-              {game.stake ?? 1} {game.stake === 1 ? 'punt' : 'punten'}
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(18px, 5vw, 26px)', fontWeight: 700, color: 'var(--gold-soft)', whiteSpace: 'nowrap' }}>
+              {tn('table.stake', game.stake ?? 1, { n: game.stake ?? 1 })}
             </div>
           </div>
-          <div style={{ textAlign: 'right', color: 'rgba(247,242,230,0.75)', fontSize: 14 }}>
-            Ronde {game.round} · doel {game.targetPoints}
+          <div className="topbar-meta" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="topbar-round" style={{ textAlign: 'right', color: 'rgba(247,242,230,0.75)', fontSize: 13 }}>
+              {t('table.round', { round: game.round, target: game.targetPoints })}
+            </span>
+            <LanguageToggle compact />
+            <button className="chat-toggle" onClick={() => setChatOpen(true)} aria-expanded={chatOpen}>
+              💬 {t('table.chat')}
+            </button>
           </div>
         </div>
 
         {/* Opponents */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 18, flexWrap: 'wrap', padding: '4px 20px', zIndex: 2 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 'clamp(8px, 2vw, 18px)', flexWrap: 'wrap', padding: '4px 12px', zIndex: 2 }}>
           {opponents.map((p) => {
             const st = statusOf(game, p);
             return (
               <div
                 key={p.id}
+                className="opponent"
                 style={{
                   minWidth: 140,
                   textAlign: 'center',
@@ -213,17 +247,19 @@ export function GameTable({ game, messages, identity, send }: Props) {
                       <PlayingCard faceDown size="sm" />
                     </div>
                   ))}
-                  {p.handCount === 0 && <div style={{ height: 62 }} />}
+                  {p.handCount === 0 && <div style={{ height: 45 }} />}
                 </div>
                 <div style={{ fontWeight: 700, color: 'var(--parchment)' }}>
                   {p.name}
-                  {game.dealerSeat === p.seat && <span title="gever" style={{ marginLeft: 6 }}>🃏</span>}
+                  {game.dealerSeat === p.seat && <span title={t('table.dealer')} style={{ marginLeft: 6 }}>🃏</span>}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 13, color: toneColor[st.tone], fontWeight: 600 }}>{st.text}</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: toneColor[st.tone], fontWeight: 600 }}>{t(st.key)}</span>
                   {secondsLeft !== null && isOnTheClock(game, p) && <Countdown seconds={secondsLeft} />}
                 </div>
-                <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.55)', marginTop: 2 }}>{p.penalty} pnt</div>
+                <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.55)', marginTop: 2 }}>
+                  {t('table.penalty', { n: p.penalty })}
+                </div>
                 <PlayedPile cards={p.played} />
               </div>
             );
@@ -238,7 +274,7 @@ export function GameTable({ game, messages, identity, send }: Props) {
           <div
             style={{
               width: 'min(70%, 520px)',
-              minHeight: (game.handSize ?? 4) > 4 ? 130 : 200,
+              minHeight: (game.handSize ?? 4) > 4 ? 110 : 150,
               borderRadius: '50% / 40%',
               background: 'radial-gradient(ellipse at 50% 42%, #3e6450, #243029)',
               border: '10px solid #7a4a24',
@@ -248,25 +284,29 @@ export function GameTable({ game, messages, identity, send }: Props) {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 14,
-              padding: 24,
+              padding: 'clamp(10px, 3vw, 24px)',
             }}
           >
             {trick.length === 0 ? (
-              <span style={{ fontFamily: 'var(--hand)', fontSize: 26, color: 'rgba(247,242,230,0.55)' }}>
-                {game.phase === 'round_over' || game.phase === 'game_over' ? 'Ronde afgelopen' : 'Wachten op de eerste kaart…'}
+              <span style={{ fontFamily: 'var(--hand)', fontSize: 'clamp(18px, 4.5vw, 26px)', color: 'rgba(247,242,230,0.55)', textAlign: 'center' }}>
+                {game.phase === 'round_over' || game.phase === 'game_over'
+                  ? t('table.roundover')
+                  : t('table.firstcard')}
               </span>
             ) : (
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', gap: 'clamp(6px, 2vw, 12px)', flexWrap: 'wrap', justifyContent: 'center' }}>
                 {trick.map((pc, i) => (
                   <div key={i} style={{ textAlign: 'center' }}>
                     <PlayingCard card={pc.card} size="md" />
-                    <div style={{ fontSize: 12, color: 'var(--felt-line)', marginTop: 4 }}>{seatName(pc.seat)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--felt-line)', marginTop: 4 }}>{seatName(pc.seat)}</div>
                   </div>
                 ))}
               </div>
             )}
             {game.leadSuit && trick.length > 0 && (
-              <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.6)' }}>Slag {(game.trickNumber ?? 0) + 1} van {game.handSize ?? 4}</div>
+              <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.6)' }}>
+                {t('table.trickof', { n: (game.trickNumber ?? 0) + 1, total: game.handSize ?? 4 })}
+              </div>
             )}
           </div>
 
@@ -283,18 +323,32 @@ export function GameTable({ game, messages, identity, send }: Props) {
         {you?.mustDecidePoverty && <PovertyOverlay game={game} send={send} />}
       </div>
 
-      {/* Chat side */}
-      <div style={{ background: 'linear-gradient(175deg, #31200f, #1e1207)', borderLeft: '1px solid rgba(201,143,61,0.3)', height: '100vh', overflow: 'hidden' }}>
-        <Chat messages={messages} viewerId={identity.playerId} onSend={(b) => send({ type: 'chat', body: b })} variant="dark" />
+      {/* Chat side: a column on a desktop, a drawer over the felt on a phone. */}
+      {chatOpen && <div className="chat-scrim" onClick={() => setChatOpen(false)} />}
+      <div className={chatOpen ? 'table-chat open' : 'table-chat'}>
+        <Chat
+          messages={messages}
+          viewerId={identity.playerId}
+          onSend={(b) => send({ type: 'chat', body: b })}
+          variant="dark"
+          action={
+            compact ? (
+              <button className="btn btn-ghost" style={{ padding: '4px 12px', fontSize: 12, minHeight: 0 }} onClick={() => setChatOpen(false)}>
+                {t('table.chat.close')}
+              </button>
+            ) : null
+          }
+        />
       </div>
     </div>
   );
 }
 
 function Standings({ game, identity }: { game: GameView; identity: Identity }) {
+  const t = useT();
   return (
     <div
-      className="scrollbar"
+      className="scrollbar standings"
       style={{
         position: 'absolute',
         top: 8,
@@ -306,19 +360,19 @@ function Standings({ game, identity }: { game: GameView; identity: Identity }) {
         padding: '10px 12px',
       }}
     >
-      <div style={{ fontFamily: 'var(--hand)', fontSize: 18, color: 'var(--gold-soft)', marginBottom: 6 }}>
-        Stand — armoede op {game.targetPoints}
+      <div className="standings-title" style={{ fontFamily: 'var(--hand)', fontSize: 18, color: 'var(--gold-soft)', marginBottom: 6 }}>
+        {t('standings.title', { target: game.targetPoints })}
       </div>
       {[...game.players].sort((a, b) => a.penalty - b.penalty).map((p) => (
         <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '2px 0', opacity: p.eliminated ? 0.5 : 1 }}>
-          <span style={{ color: 'var(--parchment)', fontSize: 13, fontWeight: p.id === identity.playerId ? 700 : 400 }}>
-            {p.id === identity.playerId ? 'Jij' : p.name}
+          <span style={{ color: 'var(--parchment)', fontSize: 13, fontWeight: p.id === identity.playerId ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {p.id === identity.playerId ? t('standings.you') : p.name}
           </span>
           <span
             style={{ display: 'flex', alignItems: 'baseline', gap: 6, color: p.penalty >= game.targetPoints - 1 ? 'var(--red-bright)' : 'var(--felt-line)' }}
-            title={`${p.penalty} punten`}
+            title={t('standings.points', { n: p.penalty })}
           >
-            <span style={{ fontSize: 15, letterSpacing: 2, opacity: 0.75 }}>{tally(p.penalty)}</span>
+            <span className="tally" style={{ fontSize: 15, letterSpacing: 2, opacity: 0.75 }}>{tally(p.penalty)}</span>
             <span style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: 'tabular-nums', minWidth: 12, textAlign: 'right' }}>
               {p.penalty}
             </span>
@@ -337,6 +391,7 @@ function Standings({ game, identity }: { game: GameView; identity: Identity }) {
  * here ever shows who else is checking - that is the whole point of the peek.
  */
 function WasPrompt({ game, send, seatName }: { game: GameView; send: (m: any) => void; seatName: (s: number) => string }) {
+  const t = useT();
   const you = game.you;
   const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
   if (!you) return null;
@@ -366,16 +421,14 @@ function WasPrompt({ game, send, seatName }: { game: GameView; send: (m: any) =>
     return bar(
       <>
         <span style={{ fontFamily: 'var(--hand)', fontSize: 20, color: 'var(--gold-soft)' }}>
-          Vuile was?
+          {t('was.question')}
         </span>
-        <span style={{ color: 'rgba(247,242,230,0.7)', fontSize: 13 }}>
-          Je mag bluffen — maar iemand kan je controleren.
-        </span>
+        <span style={{ color: 'rgba(247,242,230,0.7)', fontSize: 13 }}>{t('was.hint')}</span>
         <button className="btn btn-primary" onClick={() => send({ type: 'declareWas', declare: true })}>
-          Gooi weg
+          {t('was.throw')}
         </button>
         <button className="btn btn-ghost" onClick={() => send({ type: 'declareWas', declare: false })}>
-          Pas
+          {t('was.pass')}
         </button>
       </>,
     );
@@ -386,20 +439,18 @@ function WasPrompt({ game, send, seatName }: { game: GameView; send: (m: any) =>
     return bar(
       <>
         <span style={{ fontFamily: 'var(--hand)', fontSize: 20, color: 'var(--gold-soft)' }}>
-          {claimants.map(seatName).join(' en ')} roept vuile was
+          {t('was.claims', { names: claimants.map(seatName).join(', ') })}
         </span>
-        <span style={{ color: 'rgba(247,242,230,0.7)', fontSize: 13 }}>
-          Controleren kost je een punt als het klopt.
-        </span>
+        <span style={{ color: 'rgba(247,242,230,0.7)', fontSize: 13 }}>{t('was.checkhint')}</span>
         {claimants
           .filter((seat) => seat !== you.seat)
           .map((seat) => (
             <button key={seat} className="btn btn-red" onClick={() => send({ type: 'challengeWas', target: seat })}>
-              Controleer {seatName(seat)}
+              {t('was.check', { name: seatName(seat) })}
             </button>
           ))}
         <button className="btn btn-ghost" onClick={() => send({ type: 'challengeWas', target: null })}>
-          Laat maar
+          {t('was.leave')}
         </button>
       </>,
     );
@@ -407,16 +458,13 @@ function WasPrompt({ game, send, seatName }: { game: GameView; send: (m: any) =>
 
   // Decided, but the window is still open on somebody else.
   if (game.phase === 'declare' || game.phase === 'challenge') {
-    return bar(
-      <span style={{ color: 'rgba(247,242,230,0.7)' }}>
-        Wachten op de rest…
-      </span>,
-    );
+    return bar(<span style={{ color: 'rgba(247,242,230,0.7)' }}>{t('was.waiting')}</span>);
   }
   return null;
 }
 
 function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
+  const t = useT();
   const you = game.you;
   const yourSeat = game.players.find((p) => p.isYou);
   const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
@@ -425,18 +473,18 @@ function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
   const isLegal = (c: Card) => legalIds.has(c.suit + c.rank);
 
   return (
-    <div style={{ zIndex: 3, padding: '10px 24px 20px', background: 'linear-gradient(0deg, rgba(0,0,0,0.35), transparent)' }}>
+    <div className="your-zone" style={{ zIndex: 3, padding: '10px 24px 20px', background: 'linear-gradient(0deg, rgba(0,0,0,0.35), transparent)' }}>
       <WasPrompt game={game} send={send} seatName={(s) => game.players.find((p) => p.seat === s)?.name ?? '?'} />
       {yourSeat && yourSeat.played.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(247,242,230,0.45)' }}>
-            Door jou gespeeld
+            {t('you.played')}
           </span>
           <PlayedPile cards={yourSeat.played} />
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 10, minHeight: 120, marginBottom: 12 }}>
-        {you.hand.length === 0 && <span style={{ color: 'rgba(247,242,230,0.5)' }}>Geen kaarten meer</span>}
+      <div className="your-hand" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 10, flexWrap: 'wrap', minHeight: 90, marginBottom: 12 }}>
+        {you.hand.length === 0 && <span style={{ color: 'rgba(247,242,230,0.5)' }}>{t('you.nocards')}</span>}
         {you.hand.map((c, i) => {
           const playable = you.canPlay && isLegal(c);
           return (
@@ -454,21 +502,23 @@ function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
       <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
         {you.isMyTurn && game.phase === 'playing' && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontFamily: 'var(--hand)', fontSize: 22, color: 'var(--gold-soft)' }}>
-            Jij bent aan de beurt
+            {t('you.turn')}
             {secondsLeft !== null && <Countdown seconds={secondsLeft} />}
           </span>
         )}
         {you.canKnock && (
           <button className="btn btn-red" style={{ fontSize: 17, padding: '0.7rem 1.8rem' }} onClick={() => send({ type: 'knock' })}>
-            Toep!
+            {t('you.knock')}
           </button>
         )}
 
         {!you.isMyTurn && game.phase === 'playing' && !you.folded && (
-          <span style={{ color: 'rgba(247,242,230,0.6)' }}>Wachten op {game.players.find((p) => p.seat === game.turnSeat)?.name}…</span>
+          <span style={{ color: 'rgba(247,242,230,0.6)' }}>
+            {t('you.waitingfor', { name: game.players.find((p) => p.seat === game.turnSeat)?.name ?? '?' })}
+          </span>
         )}
         {you.folded && game.phase !== 'round_over' && (
-          <span style={{ color: '#c98f8f', fontStyle: 'italic' }}>Je bent gevouwen — kijk maar toe.</span>
+          <span style={{ color: '#c98f8f', fontStyle: 'italic' }}>{t('you.folded')}</span>
         )}
       </div>
     </div>
@@ -476,26 +526,29 @@ function YourZone({ game, send }: { game: GameView; send: (m: any) => void }) {
 }
 
 function KnockOverlay({ game, send, seatName }: { game: GameView; send: (m: any) => void; seatName: (s: number) => string }) {
+  const t = useT();
   const knocker = game.pendingKnock ? seatName(game.pendingKnock.knockerSeat) : '';
   const newStake = game.pendingKnock?.newStake ?? 2;
   const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
   return (
     <Overlay>
-      <div style={{ fontFamily: 'var(--hand)', fontSize: 30, color: 'var(--gold-soft)' }}>{knocker} heeft getoept!</div>
+      <div style={{ fontFamily: 'var(--hand)', fontSize: 'clamp(24px, 7vw, 30px)', color: 'var(--gold-soft)' }}>
+        {t('knock.title', { name: knocker })}
+      </div>
       <p style={{ color: 'var(--parchment)', margin: '8px 0 20px' }}>
-        Ga je mee voor <strong>{newStake} punten</strong>, of vouw je voor {newStake - 1}?
+        {t('knock.question', { stake: newStake, less: newStake - 1 })}
       </p>
       {secondsLeft !== null && (
         <p style={{ color: 'rgba(247,242,230,0.7)', margin: '-10px 0 16px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Countdown seconds={secondsLeft} /> anders vouw je automatisch
+          <Countdown seconds={secondsLeft} /> {t('knock.autofold')}
         </p>
       )}
-      <div style={{ display: 'flex', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button className="btn btn-primary" style={{ fontSize: 17, padding: '0.8rem 2rem' }} onClick={() => send({ type: 'respond', response: 'call' })}>
-          Mee
+          {t('knock.call')}
         </button>
         <button className="btn btn-ghost" style={{ fontSize: 17, padding: '0.8rem 2rem' }} onClick={() => send({ type: 'respond', response: 'fold' })}>
-          Vouw
+          {t('knock.fold')}
         </button>
       </div>
     </Overlay>
@@ -503,24 +556,27 @@ function KnockOverlay({ game, send, seatName }: { game: GameView; send: (m: any)
 }
 
 function PovertyOverlay({ game, send }: { game: GameView; send: (m: any) => void }) {
+  const t = useT();
   const secondsLeft = useSecondsLeft(game.turnDeadline, game.now);
   return (
     <Overlay>
-      <div style={{ fontFamily: 'var(--hand)', fontSize: 30, color: 'var(--gold-soft)' }}>Armoede aan tafel</div>
+      <div style={{ fontFamily: 'var(--hand)', fontSize: 'clamp(24px, 7vw, 30px)', color: 'var(--gold-soft)' }}>
+        {t('poverty.title')}
+      </div>
       <p style={{ color: 'var(--parchment)', margin: '8px 0 20px', maxWidth: 360, textAlign: 'center' }}>
-        Iemand staat op het randje. Speel je mee (verlies = 2 punten) of vouw je veilig (1 punt)?
+        {t('poverty.body')}
       </p>
       {secondsLeft !== null && (
         <p style={{ color: 'rgba(247,242,230,0.7)', margin: '-10px 0 16px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Countdown seconds={secondsLeft} /> anders vouw je automatisch
+          <Countdown seconds={secondsLeft} /> {t('knock.autofold')}
         </p>
       )}
-      <div style={{ display: 'flex', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button className="btn btn-primary" style={{ fontSize: 17, padding: '0.8rem 2rem' }} onClick={() => send({ type: 'poverty', decision: 'play' })}>
-          Meespelen
+          {t('poverty.play')}
         </button>
         <button className="btn btn-ghost" style={{ fontSize: 17, padding: '0.8rem 2rem' }} onClick={() => send({ type: 'poverty', decision: 'fold' })}>
-          Vouwen
+          {t('poverty.fold')}
         </button>
       </div>
     </Overlay>
@@ -539,6 +595,7 @@ function PovertyOverlay({ game, send }: { game: GameView; send: (m: any) => void
  * The end of the *game* is still a modal: there is no table left to study.
  */
 function RoundResult({ game, identity, send, seatName }: { game: GameView; identity: Identity; send: (m: any) => void; seatName: (s: number) => string }) {
+  const { t, logLine } = useI18n();
   const isGameOver = game.phase === 'game_over';
   const winnerSeat = isGameOver ? game.gameWinnerSeat : game.winnerSeat;
   const winnerName = winnerSeat != null ? seatName(winnerSeat) : '';
@@ -548,14 +605,14 @@ function RoundResult({ game, identity, send, seatName }: { game: GameView; ident
   if (isGameOver) {
     return (
       <Overlay>
-        <div style={{ fontFamily: 'var(--serif)', fontSize: 34, fontWeight: 700, color: 'var(--gold-soft)', marginBottom: 6 }}>
-          🏆 Spel afgelopen
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(26px, 8vw, 34px)', fontWeight: 700, color: 'var(--gold-soft)', marginBottom: 6 }}>
+          {t('over.title')}
         </div>
         <div style={{ fontSize: 20, color: 'var(--parchment)', marginBottom: 20 }}>
-          {youWon ? 'Jij wint het potje!' : `${winnerName} wint het potje!`}
+          {youWon ? t('over.youwin') : t('over.winner', { name: winnerName })}
         </div>
         <Link to="/" className="btn btn-primary" style={{ fontSize: 17, padding: '0.8rem 2rem' }}>
-          Nieuw potje
+          {t('over.new')}
         </Link>
       </Overlay>
     );
@@ -563,11 +620,13 @@ function RoundResult({ game, identity, send, seatName }: { game: GameView; ident
 
   return (
     <div
+      className="round-result"
       style={{
         position: 'absolute',
         // Bottom-left: the one corner with nothing in it. Top-left clipped the
         // first opponent's pile, which is exactly what this panel exists to
-        // stop covering.
+        // stop covering. On a phone there is no free corner at all, so the
+        // stylesheet lays it along the bottom instead.
         bottom: 20,
         left: 20,
         width: 250,
@@ -580,21 +639,23 @@ function RoundResult({ game, identity, send, seatName }: { game: GameView; ident
       }}
     >
       <div style={{ fontFamily: 'var(--hand)', fontSize: 22, color: 'var(--gold-soft)' }}>
-        Ronde afgelopen
+        {t('table.roundover')}
       </div>
       <div style={{ fontSize: 17, color: 'var(--parchment)', fontWeight: 600, margin: '2px 0 10px' }}>
-        {youWon ? 'Jij wint de ronde.' : `${winnerName} wint de ronde.`}
+        {youWon ? t('result.youwin') : t('result.winner', { name: winnerName })}
       </div>
-      <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
+      <div className="round-result-log" style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
         {lastLines.map((l, i) => (
-          <div key={i} style={{ color: 'var(--parchment)', opacity: 0.85, fontSize: 13, padding: '1px 0' }}>{l.text}</div>
+          <div key={i} style={{ color: 'var(--parchment)', opacity: 0.85, fontSize: 13, padding: '1px 0' }}>
+            {logLine(l)}
+          </div>
         ))}
       </div>
-      <div style={{ fontSize: 12, color: 'rgba(247,242,230,0.55)', marginBottom: 10 }}>
-        De kaarten blijven liggen tot er gedeeld wordt.
+      <div className="round-result-note" style={{ fontSize: 12, color: 'rgba(247,242,230,0.55)', marginBottom: 10 }}>
+        {t('result.note')}
       </div>
       <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => send({ type: 'nextRound' })}>
-        Volgende ronde delen
+        {t('result.next')}
       </button>
     </div>
   );

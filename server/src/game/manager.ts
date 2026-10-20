@@ -16,6 +16,7 @@ import type { Card } from '../engine/cards.js';
 import type { EngineState } from '../engine/types.js';
 import * as users from '../db/users.js';
 import { buildView } from './view.js';
+import { errorCode } from '../errors.js';
 
 interface Conn {
   ws: WebSocket;
@@ -68,8 +69,10 @@ function send(ws: WebSocket, payload: unknown): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload));
 }
 
-export function sendError(ws: WebSocket, message: string): void {
-  send(ws, { type: 'error', message });
+export function sendError(ws: WebSocket, message: string, code?: string): void {
+  // `code` lets the client show the message in its own language; `message`
+  // travels with it as the fallback for anything not yet given a code.
+  send(ws, { type: 'error', message, code: code ?? errorCode(message) });
 }
 
 export async function broadcast(gameId: string): Promise<void> {
@@ -169,8 +172,13 @@ export async function handleChat(
   broadcastRaw(gameId, { type: 'chat', message: msg });
 }
 
+/**
+ * A line from the table itself. The body is a *code*, not a sentence: the row
+ * is stored once and read by players in different languages, so the wording
+ * has to be chosen when it is rendered, not when it is written.
+ */
 async function systemChat(gameId: string, body: string): Promise<void> {
-  const msg = await repo.addChat({ gameId, playerId: null, name: 'Tafel', body, kind: 'system' });
+  const msg = await repo.addChat({ gameId, playerId: null, name: '', body, kind: 'system' });
   broadcastRaw(gameId, { type: 'chat', message: msg });
 }
 
@@ -221,7 +229,7 @@ export async function handleStart(gameId: string, playerId: string): Promise<voi
     engine = withDeadline(startRound(engine, seed()), game.think_seconds);
     await repo.saveState(gameId, 'playing', engine);
   });
-  await systemChat(gameId, 'Het potje is begonnen! 🍺');
+  await systemChat(gameId, 'game_started');
   await scheduleTimer(gameId);
   await broadcast(gameId);
 }

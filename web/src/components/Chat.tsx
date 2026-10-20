@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage } from '../types.js';
+import { useI18n } from '../i18n/index.js';
 
 interface Props {
   messages: ChatMessage[];
   viewerId: string | null;
   onSend: (body: string) => void;
   variant?: 'dark' | 'parchment';
+  /** Rendered beside the title; the drawer's close button on a phone. */
+  action?: React.ReactNode;
 }
 
 // "Stamtafel" — the regulars' table chat.
-export function Chat({ messages, viewerId, onSend, variant = 'dark' }: Props) {
+export function Chat({ messages, viewerId, onSend, variant = 'dark', action }: Props) {
+  const { t, tOr, locale } = useI18n();
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -39,9 +43,10 @@ export function Chat({ messages, viewerId, onSend, variant = 'dark' }: Props) {
           borderBottom: dark ? '1px solid rgba(201,143,61,0.25)' : '1px solid var(--cream-line)',
         }}
       >
-        <span style={{ fontFamily: 'var(--hand)', fontSize: 24, color: 'var(--gold-soft)' }}>
-          Stamtafel
+        <span style={{ fontFamily: 'var(--hand)', fontSize: 24, color: 'var(--gold-soft)', flex: 1 }}>
+          {t('chat.title')}
         </span>
+        {action}
       </div>
 
       <div
@@ -62,7 +67,10 @@ export function Chat({ messages, viewerId, onSend, variant = 'dark' }: Props) {
                   opacity: 0.85,
                 }}
               >
-                — {m.body} —
+                {/* The body is a code, not a sentence: one stored row is read
+                    by players in different languages. A code with no wording
+                    yet is shown as it came, never swallowed. */}
+                — {tOr(`chat.system.${m.body}`, m.body)} —
               </div>
             );
           }
@@ -79,7 +87,7 @@ export function Chat({ messages, viewerId, onSend, variant = 'dark' }: Props) {
               >
                 {m.name}
                 <span style={{ color: dark ? 'rgba(247,242,230,0.4)' : 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>
-                  {new Date(m.created_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(m.created_at).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </span>
               <span
@@ -104,7 +112,7 @@ export function Chat({ messages, viewerId, onSend, variant = 'dark' }: Props) {
         })}
         {messages.length === 0 && (
           <div style={{ color: dark ? 'rgba(247,242,230,0.4)' : 'var(--muted)', fontSize: 14, textAlign: 'center', marginTop: 20 }}>
-            Nog stil aan tafel…
+            {t('chat.empty')}
           </div>
         )}
       </div>
@@ -113,7 +121,7 @@ export function Chat({ messages, viewerId, onSend, variant = 'dark' }: Props) {
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Zeg iets…"
+          placeholder={t('chat.placeholder')}
           maxLength={500}
           style={{
             flex: 1,
@@ -123,11 +131,13 @@ export function Chat({ messages, viewerId, onSend, variant = 'dark' }: Props) {
             background: dark ? 'rgba(0,0,0,0.25)' : '#fff',
             color: dark ? 'var(--parchment)' : 'var(--ink)',
             outline: 'none',
-            fontSize: 14,
+            // 16px: anything smaller and iOS Safari zooms the whole table in
+            // when the field takes focus.
+            fontSize: 16,
           }}
         />
         <button type="submit" className="btn btn-primary" style={{ padding: '0 16px' }}>
-          Stuur
+          {t('chat.send')}
         </button>
       </form>
     </div>

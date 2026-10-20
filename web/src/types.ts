@@ -58,10 +58,16 @@ export interface PendingKnock {
   responses: Record<number, 'call' | 'fold' | null>;
 }
 
+/**
+ * One line of the round log. The server sends data, not a sentence, so each
+ * client can render it in its own language (see `i18n/index.tsx`). `text` is
+ * only present on games logged before that was true.
+ */
 export interface LogEntry {
   kind: string;
   seat?: number;
-  text: string;
+  params?: Record<string, string | number>;
+  text?: string;
 }
 
 export type Phase =

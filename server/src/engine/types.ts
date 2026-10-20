@@ -60,10 +60,20 @@ export interface PendingKnock {
   responses: Record<number, 'call' | 'fold' | null>; // by seat
 }
 
+/**
+ * One line of the round log.
+ *
+ * The entry carries *data*, never a finished sentence: the engine has no
+ * language, and each client renders the line in whichever language its player
+ * chose. `text` exists only for games logged before this was so.
+ */
 export interface RoundLogEntry {
   kind: string;
   seat?: number;
-  text: string;
+  /** Values the client interpolates into the sentence for `kind`. */
+  params?: Record<string, string | number>;
+  /** Legacy pre-translation Dutch sentence. Never written any more. */
+  text?: string;
 }
 
 export interface EngineState {

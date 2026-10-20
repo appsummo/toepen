@@ -210,11 +210,11 @@ export function startRound(prev: EngineState, seed: number): EngineState {
     }
   }
 
-  log(state, { kind: 'deal', text: `Ronde ${state.round} gedeeld.` });
+  log(state, { kind: 'deal', params: { round: state.round } });
   if (state.handSize !== NORMAL_HAND) {
     log(state, {
       kind: 'decider',
-      text: `Beslissende ronde — iedereen staat op ${state.targetPoints - 1}. ${state.handSize} kaarten ieder!`,
+      params: { brink: state.targetPoints - 1, cards: state.handSize },
     });
   }
 
@@ -224,7 +224,7 @@ export function startRound(prev: EngineState, seed: number): EngineState {
     const counts = countByRank(p.hand);
     for (const [, c] of counts) {
       if (c === 4) {
-        log(state, { kind: 'toep', seat, text: `${p.name} roept Toep — vier gelijke!` });
+        log(state, { kind: 'toep', seat, params: { name: p.name } });
         return finishRound(state, seat, null, { fourOfAKind: true });
       }
     }
@@ -235,7 +235,7 @@ export function startRound(prev: EngineState, seed: number): EngineState {
   if (state.dirtyLaundryEnabled) {
     state.phase = 'declare';
     for (const seat of active) state.declareDecisions[seat] = null;
-    log(state, { kind: 'declare', text: 'Vuile was? Gooi je hand weg of pas.' });
+    log(state, { kind: 'declare' });
     return state;
   }
   return beginPlay(state);
@@ -259,7 +259,7 @@ function beginPlay(state: EngineState): EngineState {
   }
   if (povertyExists && canDecide) {
     state.phase = 'poverty';
-    log(state, { kind: 'poverty', text: 'Armoede! Beslis of je meespeelt.' });
+    log(state, { kind: 'poverty' });
   } else {
     state.phase = 'playing';
   }
@@ -288,9 +288,9 @@ export function povertyDecide(
     p.folded = true;
     p.foldPenalty = 1;
     withdrawFromTrick(state, seat);
-    log(state, { kind: 'poverty_fold', seat, text: `${p.name} vouwt bij armoede.` });
+    log(state, { kind: 'poverty_fold', seat, params: { name: p.name } });
   } else {
-    log(state, { kind: 'poverty_play', seat, text: `${p.name} speelt mee.` });
+    log(state, { kind: 'poverty_play', seat, params: { name: p.name } });
   }
 
   // Once every non-poverty player has decided, begin play.
@@ -361,7 +361,7 @@ export function playCard(prev: EngineState, seat: number, card: Card): EngineSta
   if (state.currentTrick.length === 0) state.leadSuit = card.suit;
   state.currentTrick.push({ seat, card });
   p.played.push({ card, trick: state.trickNumber });
-  log(state, { kind: 'play', seat, text: `${p.name} speelt ${cardId(card)}.` });
+  log(state, { kind: 'play', seat, params: { name: p.name, card: cardId(card) } });
 
   const contenders = inRoundSeats(state);
   if (state.currentTrick.length >= contenders.length) {
@@ -388,7 +388,7 @@ function resolveTrick(state: EngineState): EngineState {
   log(state, {
     kind: 'trick',
     seat: winnerSeat,
-    text: `${playerAt(state, winnerSeat).name} wint slag ${state.trickNumber + 1}.`,
+    params: { name: playerAt(state, winnerSeat).name, trick: state.trickNumber + 1 },
   });
 
   const isFinalTrick = state.trickNumber >= state.handSize - 1;
@@ -423,7 +423,7 @@ export function knock(prev: EngineState, seat: number): EngineState {
   log(state, {
     kind: 'knock',
     seat,
-    text: `${p.name} heeft getoept — inzet naar ${newStake}.`,
+    params: { name: p.name, stake: newStake },
   });
   // If knocker is the only one in the round, resolve immediately.
   return maybeResolveKnock(state);
@@ -447,9 +447,9 @@ export function respondKnock(
     p.folded = true;
     p.foldPenalty = state.stake; // locked in at the pre-knock level
     withdrawFromTrick(state, seat);
-    log(state, { kind: 'fold', seat, text: `${p.name} vouwt.` });
+    log(state, { kind: 'fold', seat, params: { name: p.name } });
   } else {
-    log(state, { kind: 'call', seat, text: `${p.name} gaat mee.` });
+    log(state, { kind: 'call', seat, params: { name: p.name } });
   }
   return maybeResolveKnock(state);
 }
@@ -532,7 +532,7 @@ export function declareWas(
       outcome: null,
       revealed: null,
     });
-    log(state, { kind: 'was_claim', seat, text: `${p.name} roept vuile was!` });
+    log(state, { kind: 'was_claim', seat, params: { name: p.name } });
   }
 
   const undecided = Object.values(state.declareDecisions).some((d) => d == null);
@@ -556,7 +556,7 @@ function openChallenges(state: EngineState, seed: number): EngineState {
   if (!anyoneCanPeek) return resolveClaims(state, seed);
 
   state.phase = 'challenge';
-  log(state, { kind: 'challenge', text: 'Iemand gooit de vuile was. Controleren?' });
+  log(state, { kind: 'challenge' });
   return state;
 }
 
@@ -609,7 +609,7 @@ function resolveClaims(state: EngineState, seed: number): EngineState {
       log(state, {
         kind: 'was_swap',
         seat: claim.seat,
-        text: `${p.name} gooit de vuile was — vier nieuwe kaarten.`,
+        params: { name: p.name, cards: state.handSize },
       });
       continue;
     }
@@ -625,7 +625,7 @@ function resolveClaims(state: EngineState, seed: number): EngineState {
       log(state, {
         kind: 'was_caught',
         seat: claim.seat,
-        text: `${names} controleert: ${p.name} blufte (${shown}) — 1 punt, en speelt verder met dezelfde hand.`,
+        params: { names, name: p.name, cards: shown },
       });
     } else {
       claim.outcome = 'wrong';
@@ -634,7 +634,7 @@ function resolveClaims(state: EngineState, seed: number): EngineState {
       log(state, {
         kind: 'was_proven',
         seat: claim.seat,
-        text: `${names} controleert: ${p.name} had het echt (${shown}) — 1 punt voor ${names}.`,
+        params: { names, name: p.name, cards: shown },
       });
     }
   }
@@ -736,9 +736,9 @@ export function applyTurnTimeout(prev: EngineState, seed = 0): EngineState {
     const weakest = legal.reduce((a, b) => (rankStrength(b.rank) < rankStrength(a.rank) ? b : a));
     const state = clone(prev);
     log(state, {
-      kind: 'timeout',
+      kind: 'timeout_play',
       seat,
-      text: `Bedenktijd van ${playerAt(state, seat).name} verstreken.`,
+      params: { name: playerAt(state, seat).name },
     });
     return playCard(state, seat, weakest);
   }
@@ -748,9 +748,9 @@ export function applyTurnTimeout(prev: EngineState, seed = 0): EngineState {
     for (const seat of pendingKnockSeats(prev)) {
       if (state.phase !== 'knock') break; // the knock resolved on an earlier fold
       log(state, {
-        kind: 'timeout',
+        kind: 'timeout_knock',
         seat,
-        text: `${playerAt(state, seat).name} reageerde niet en vouwt.`,
+        params: { name: playerAt(state, seat).name },
       });
       state = respondKnock(state, seat, 'fold');
     }
@@ -761,9 +761,9 @@ export function applyTurnTimeout(prev: EngineState, seed = 0): EngineState {
   for (const seat of pendingPovertySeats(prev)) {
     if (state.phase !== 'poverty') break;
     log(state, {
-      kind: 'timeout',
+      kind: 'timeout_poverty',
       seat,
-      text: `${playerAt(state, seat).name} besliste niet en vouwt.`,
+      params: { name: playerAt(state, seat).name },
     });
     state = povertyDecide(state, seat, 'fold');
   }
@@ -791,7 +791,7 @@ function finishRound(
     for (const p of state.players) {
       if (p.seat !== winnerSeat && !p.eliminated) p.penalty += 3;
     }
-    log(state, { kind: 'result', seat: winnerSeat, text: `${winner.name} wint direct met vier gelijke (+3 voor de rest).` });
+    log(state, { kind: 'result_four', seat: winnerSeat, params: { name: winner.name } });
   } else {
     // Callers who stayed in and lost pay the stake.
     for (const p of state.players) {
@@ -806,9 +806,9 @@ function finishRound(
     // Jack bonus: winning the final trick with a Jack removes one point.
     if (winnerCard && winnerCard.rank === 'J') {
       winner.penalty = Math.max(0, winner.penalty - 1);
-      log(state, { kind: 'jack', seat: winnerSeat, text: `${winner.name} wint met een Boer — 1 punt eraf!` });
+      log(state, { kind: 'jack', seat: winnerSeat, params: { name: winner.name } });
     }
-    log(state, { kind: 'result', seat: winnerSeat, text: `${winner.name} wint de ronde.` });
+    log(state, { kind: 'result', seat: winnerSeat, params: { name: winner.name } });
   }
 
   // Eliminations.
@@ -816,7 +816,7 @@ function finishRound(
     if (!p.eliminated && p.penalty >= state.targetPoints) {
       p.eliminated = true;
       p.inRound = false;
-      log(state, { kind: 'eliminated', seat: p.seat, text: `${p.name} ligt eruit (${p.penalty} punten).` });
+      log(state, { kind: 'eliminated', seat: p.seat, params: { name: p.name, points: p.penalty } });
     }
   }
 
@@ -824,7 +824,7 @@ function finishRound(
   if (survivors.length <= 1) {
     state.phase = 'game_over';
     state.gameWinnerSeat = survivors.length === 1 ? survivors[0].seat : winnerSeat;
-    log(state, { kind: 'game_over', seat: state.gameWinnerSeat!, text: `${playerAt(state, state.gameWinnerSeat!).name} wint het spel!` });
+    log(state, { kind: 'game_over', seat: state.gameWinnerSeat!, params: { name: playerAt(state, state.gameWinnerSeat!).name } });
   } else {
     // Winner deals the next round.
     state.dealerSeat = winner.eliminated ? nextActive(state, winnerSeat) : winnerSeat;

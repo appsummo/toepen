@@ -1,36 +1,19 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createGame, joinGame, saveIdentity } from '../api.js';
+import { ApiError, createGame, joinGame, saveIdentity } from '../api.js';
+import { useI18n, useT } from '../i18n/index.js';
+import { SiteHeader } from '../components/SiteHeader.js';
 
 type Mode = null | 'create' | 'join';
 
 export function Landing() {
   const navigate = useNavigate();
+  const t = useT();
   const [mode, setMode] = useState<Mode>(null);
 
   return (
-    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '20px 6vw',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-          <span className="wordmark" style={{ fontSize: 26 }}>
-            TOEPEN
-          </span>
-          <span className="suits" style={{ fontSize: 18 }}>
-            ♠♥♣♦
-          </span>
-        </div>
-        <nav style={{ display: 'flex', gap: 24, color: 'var(--parchment)', fontWeight: 600, opacity: 0.85, fontSize: 15 }}>
-          <span style={{ cursor: 'default' }}>Spelregels</span>
-          <span style={{ cursor: 'default' }}>Ranglijst</span>
-        </nav>
-      </header>
+    <div className="page">
+      <SiteHeader />
 
       <main
         style={{
@@ -40,61 +23,55 @@ export function Landing() {
           alignItems: 'center',
           justifyContent: 'center',
           textAlign: 'center',
-          padding: '2rem 6vw 4rem',
+          padding: '2rem clamp(16px, 6vw, 72px) 4rem',
         }}
       >
-        <span style={{ fontFamily: 'var(--hand)', fontSize: 30, color: 'var(--gold-soft)', marginBottom: 4 }}>
-          Zoals vroeger aan de stamtafel
+        <span style={{ fontFamily: 'var(--hand)', fontSize: 'clamp(22px, 6vw, 30px)', color: 'var(--gold-soft)', marginBottom: 4 }}>
+          {t('landing.kicker')}
         </span>
         <h1
           style={{
             fontFamily: 'var(--serif)',
             color: 'var(--parchment)',
-            fontSize: 'clamp(2.4rem, 6vw, 4.2rem)',
+            fontSize: 'clamp(2.1rem, 6vw, 4.2rem)',
             lineHeight: 1.05,
             margin: '0.4rem 0',
             maxWidth: 900,
           }}
         >
-          Het café-kaartspel,
+          {t('landing.title.1')}
           <br />
-          <span style={{ color: 'var(--gold)' }}>nu met je vrienden online.</span>
+          <span style={{ color: 'var(--gold)' }}>{t('landing.title.2')}</span>
         </h1>
-        <p style={{ color: 'var(--parchment)', opacity: 0.8, fontSize: 18, maxWidth: 620, margin: '1rem 0 2rem', lineHeight: 1.5 }}>
-          Bluf, toep en vouw. Vier kaarten, vijftien punten, en één iemand haalt vanavond de volgende ronde.
+        <p style={{ color: 'var(--parchment)', opacity: 0.8, fontSize: 'clamp(15px, 4vw, 18px)', maxWidth: 620, margin: '1rem 0 2rem', lineHeight: 1.5 }}>
+          {t('landing.body')}
         </p>
 
         {!mode && (
           <>
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
               <button className="btn btn-primary" style={{ fontSize: 18, padding: '1rem 2rem' }} onClick={() => setMode('create')}>
-                Potje aanmaken
+                {t('landing.create')}
               </button>
               <button className="btn btn-ghost" style={{ fontSize: 18, padding: '1rem 2rem' }} onClick={() => setMode('join')}>
-                Meedoen
+                {t('landing.join')}
               </button>
             </div>
-            <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 18 }}>
-              Gratis · 2–8 spelers · geen account nodig om mee te doen
-            </p>
+            <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 18 }}>{t('landing.note')}</p>
           </>
         )}
 
-        {mode === 'create' && <CreateForm onBack={() => setMode(null)} onDone={(code, id) => go(navigate, code, id)} />}
-        {mode === 'join' && <JoinForm onBack={() => setMode(null)} onDone={(code, id) => go(navigate, code, id)} />}
+        {mode === 'create' && <CreateForm onBack={() => setMode(null)} onDone={(code) => navigate(`/game/${code}`)} />}
+        {mode === 'join' && <JoinForm onBack={() => setMode(null)} onDone={(code) => navigate(`/game/${code}`)} />}
       </main>
 
-      <section style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center', padding: '0 6vw 4rem' }}>
-        <Feature title="Maak een tafel" body="Kies het aantal punten en deel de spelcode." />
-        <Feature title="Nodig je maten uit" body="Iedereen doet mee via de code — zonder gedoe." />
-        <Feature title="Toep of vouw" body="Verhoog de inzet en bluf je tegenstanders eruit." />
+      <section style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center', padding: '0 clamp(16px, 6vw, 72px) 4rem' }}>
+        <Feature title={t('landing.feature.1.title')} body={t('landing.feature.1.body')} />
+        <Feature title={t('landing.feature.2.title')} body={t('landing.feature.2.body')} />
+        <Feature title={t('landing.feature.3.title')} body={t('landing.feature.3.body')} />
       </section>
     </div>
   );
-}
-
-function go(navigate: ReturnType<typeof useNavigate>, code: string, _id: string) {
-  navigate(`/game/${code}`);
 }
 
 function Feature({ title, body }: { title: string; body: string }) {
@@ -119,13 +96,31 @@ const inputStyle: React.CSSProperties = {
   padding: '11px 14px',
   borderRadius: 10,
   border: '1px solid var(--cream-line)',
-  fontSize: 16,
+  fontSize: 16, // 16px or more, or iOS Safari zooms the page on focus
   background: '#fff',
   color: 'var(--ink)',
   outline: 'none',
+  width: '100%',
 };
 
-function CreateForm({ onBack, onDone }: { onBack: () => void; onDone: (code: string, id: string) => void }) {
+const formStyle: React.CSSProperties = {
+  padding: '1.6rem',
+  width: 'min(420px, 92vw)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+};
+
+/** Whatever went wrong, said in the player's language. */
+function useFailureText(): (e: unknown) => string {
+  const { errorText } = useI18n();
+  return (e: unknown) =>
+    errorText(e instanceof ApiError ? e.code : null, e instanceof Error ? e.message : null);
+}
+
+function CreateForm({ onBack, onDone }: { onBack: () => void; onDone: (code: string) => void }) {
+  const t = useT();
+  const failure = useFailureText();
   const [name, setName] = useState('');
   const [target, setTarget] = useState(15);
   const [think, setThink] = useState(30);
@@ -145,53 +140,59 @@ function CreateForm({ onBack, onDone }: { onBack: () => void; onDone: (code: str
         seat: res.player.seat,
         isHost: true,
       });
-      onDone(res.game.code, res.player.id);
+      onDone(res.game.code);
     } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Er ging iets mis');
+      setErr(failure(e2));
       setBusy(false);
     }
   };
 
   return (
-    <form onSubmit={submit} className="parchment" style={{ padding: '1.6rem', width: 'min(420px, 92vw)', display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 24 }}>Maak een tafel</h2>
-      <Field label="Jouw naam">
-        <input autoFocus style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Bijv. Jeroen" maxLength={24} />
+    <form onSubmit={submit} className="parchment" style={formStyle}>
+      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 24 }}>{t('create.title')}</h2>
+      <Field label={t('form.name')}>
+        <input autoFocus style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('form.name.placeholder.create')} maxLength={24} />
       </Field>
-      <div style={{ display: 'flex', gap: 12 }}>
-        <Field label="Speeldoel (punten)">
-          <select style={inputStyle} value={target} onChange={(e) => setTarget(Number(e.target.value))}>
-            {[5, 8, 10, 12, 15].map((n) => (
-              <option key={n} value={n}>{n} punten</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Bedenktijd">
-          <select style={inputStyle} value={think} onChange={(e) => setThink(Number(e.target.value))}>
-            {[20, 30, 45, 60].map((n) => (
-              <option key={n} value={n}>{n} sec</option>
-            ))}
-          </select>
-        </Field>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 150px' }}>
+          <Field label={t('form.target')}>
+            <select style={inputStyle} value={target} onChange={(e) => setTarget(Number(e.target.value))}>
+              {[5, 8, 10, 12, 15].map((n) => (
+                <option key={n} value={n}>{t('form.points', { n })}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <div style={{ flex: '1 1 120px' }}>
+          <Field label={t('form.think')}>
+            <select style={inputStyle} value={think} onChange={(e) => setThink(Number(e.target.value))}>
+              {[20, 30, 45, 60].map((n) => (
+                <option key={n} value={n}>{t('form.seconds', { n })}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
       </div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
         <input type="checkbox" checked={dirty} onChange={(e) => setDirty(e.target.checked)} style={{ width: 18, height: 18 }} />
-        <span style={{ fontWeight: 600 }}>Vuile was toegestaan</span>
+        <span style={{ fontWeight: 600 }}>{t('create.dirty')}</span>
       </label>
       {err && <p style={{ color: 'var(--red)', fontSize: 14 }}>{err}</p>}
       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
         <button type="button" className="btn btn-ghost" style={{ color: 'var(--ink)', border: '1px solid var(--cream-line)' }} onClick={onBack}>
-          Terug
+          {t('generic.back')}
         </button>
         <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={busy || !name.trim()}>
-          {busy ? 'Even geduld…' : 'Tafel openen'}
+          {busy ? t('generic.busy') : t('create.submit')}
         </button>
       </div>
     </form>
   );
 }
 
-function JoinForm({ onBack, onDone }: { onBack: () => void; onDone: (code: string, id: string) => void }) {
+function JoinForm({ onBack, onDone }: { onBack: () => void; onDone: (code: string) => void }) {
+  const t = useT();
+  const failure = useFailureText();
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -209,29 +210,38 @@ function JoinForm({ onBack, onDone }: { onBack: () => void; onDone: (code: strin
         seat: res.player.seat,
         isHost: false,
       });
-      onDone(res.game.code, res.player.id);
+      onDone(res.game.code);
     } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Er ging iets mis');
+      setErr(failure(e2));
       setBusy(false);
     }
   };
 
   return (
-    <form onSubmit={submit} className="parchment" style={{ padding: '1.6rem', width: 'min(420px, 92vw)', display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 24 }}>Meedoen aan een potje</h2>
-      <Field label="Spelcode">
-        <input autoFocus style={{ ...inputStyle, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }} value={code} onChange={(e) => setCode(e.target.value)} placeholder="KLAVER-712" />
+    <form onSubmit={submit} className="parchment" style={formStyle}>
+      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 24 }}>{t('join.title')}</h2>
+      <Field label={t('form.code')}>
+        <input
+          autoFocus
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          style={{ ...inputStyle, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="KLAVER-712"
+        />
       </Field>
-      <Field label="Jouw naam">
-        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Bijv. Sanne" maxLength={24} />
+      <Field label={t('form.name')}>
+        <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('form.name.placeholder.join')} maxLength={24} />
       </Field>
       {err && <p style={{ color: 'var(--red)', fontSize: 14 }}>{err}</p>}
       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
         <button type="button" className="btn btn-ghost" style={{ color: 'var(--ink)', border: '1px solid var(--cream-line)' }} onClick={onBack}>
-          Terug
+          {t('generic.back')}
         </button>
         <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={busy || !name.trim() || !code.trim()}>
-          {busy ? 'Even geduld…' : 'Aanschuiven'}
+          {busy ? t('generic.busy') : t('join.submit')}
         </button>
       </div>
     </form>

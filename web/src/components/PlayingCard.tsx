@@ -1,4 +1,5 @@
 import type { Card, Suit } from '../types.js';
+import { useIsNarrow } from '../useMediaQuery.js';
 
 const SUIT_SYMBOL: Record<Suit, string> = { C: '♣', H: '♥', S: '♠', D: '♦' };
 const RED_SUITS: Suit[] = ['H', 'D'];
@@ -22,8 +23,18 @@ const DIMS = {
   lg: { w: 82, h: 116, font: 28, pip: 26 },
 };
 
+// On a phone a full hand at the desktop size does not fit across the screen -
+// and a decider deals eight. Smaller, but never so small that the rank and the
+// centre pip stop being readable at arm's length.
+const NARROW_DIMS = {
+  sm: { w: 32, h: 45, font: 12, pip: 10 },
+  md: { w: 46, h: 65, font: 17, pip: 15 },
+  lg: { w: 58, h: 82, font: 21, pip: 18 },
+};
+
 export function PlayingCard({ card, faceDown, size = 'md', disabled, selected, onClick }: Props) {
-  const d = DIMS[size];
+  const narrow = useIsNarrow();
+  const d = (narrow ? NARROW_DIMS : DIMS)[size];
   const clickable = !!onClick && !disabled;
 
   if (faceDown || !card) {

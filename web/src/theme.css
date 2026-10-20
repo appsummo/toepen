@@ -153,3 +153,316 @@ input {
   background: rgba(201, 143, 61, 0.4);
   border-radius: 8px;
 }
+
+/* ---- layout shared by the pages outside a game ---- */
+
+.page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px clamp(16px, 6vw, 72px);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  text-decoration: none;
+}
+.brand-mark {
+  font-size: clamp(20px, 5vw, 26px);
+}
+.brand-suits {
+  font-size: clamp(14px, 3.5vw, 18px);
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 3vw, 24px);
+}
+.site-nav-link {
+  color: var(--parchment);
+  font-weight: 600;
+  font-size: 15px;
+  opacity: 0.85;
+  text-decoration: none;
+  padding: 6px 2px;
+}
+.site-nav-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* ---- rules page ---- */
+
+.rules-main {
+  flex: 1;
+  width: min(880px, 100%);
+  margin: 0 auto;
+  padding: 0 clamp(16px, 5vw, 32px) 4rem;
+}
+.rules-title {
+  font-family: var(--serif);
+  color: var(--parchment);
+  font-size: clamp(2rem, 7vw, 3rem);
+  margin-bottom: 0.3rem;
+}
+.rules-lead {
+  font-family: var(--hand);
+  font-size: clamp(19px, 4.5vw, 24px);
+  color: var(--gold-soft);
+  margin-bottom: 1.6rem;
+}
+.rules-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rules-card {
+  padding: clamp(1.1rem, 4vw, 1.5rem);
+}
+.rules-heading {
+  font-family: var(--serif);
+  font-size: clamp(19px, 4.5vw, 22px);
+  color: var(--ink);
+  margin-bottom: 0.6rem;
+}
+.rules-list,
+.rules-sublist {
+  list-style: none;
+}
+.rules-list > li {
+  position: relative;
+  padding-left: 1.1rem;
+  margin-bottom: 0.55rem;
+  color: var(--ink-soft);
+  font-size: clamp(14.5px, 3.6vw, 15.5px);
+  line-height: 1.5;
+}
+.rules-list > li::before {
+  content: '♠';
+  position: absolute;
+  left: 0;
+  top: 0.05em;
+  color: var(--gold);
+  font-size: 0.8em;
+}
+.rules-sublist {
+  margin: 0.35rem 0 0.2rem;
+}
+.rules-sublist > li {
+  position: relative;
+  padding-left: 1rem;
+  margin-bottom: 0.25rem;
+  color: var(--muted-2);
+  font-size: 0.95em;
+  line-height: 1.45;
+}
+.rules-sublist > li::before {
+  content: '–';
+  position: absolute;
+  left: 0.15rem;
+}
+.rules-cta {
+  margin-top: 1.8rem;
+  text-decoration: none;
+}
+
+/* ---- phones ----
+   The table is the one screen that cannot simply stack: it has to keep the
+   felt, your hand and the action buttons on screen at once. So the chat moves
+   out of the layout into a drawer, and everything else gives up some size. */
+
+.table-shell {
+  /* dvh, not vh: on mobile Safari 100vh is taller than the visible area, which
+     pushed the action buttons under the browser's own chrome. */
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.table-chat {
+  background: linear-gradient(175deg, #31200f, #1e1207);
+  border-left: 1px solid rgba(201, 143, 61, 0.3);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.chat-toggle,
+.chat-scrim {
+  display: none;
+}
+
+.lobby-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  gap: 24px;
+  padding: 0 5vw 3vh;
+  align-items: start;
+}
+.lobby-chat {
+  height: min(72vh, 640px);
+  overflow: hidden;
+  background: linear-gradient(175deg, #31200f, #241505);
+  border: 1px solid rgba(201, 143, 61, 0.3);
+}
+
+@media (max-width: 900px) {
+  .table-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Off-canvas, and genuinely off: `visibility` keeps it out of the tab order
+     while closed, which a transform alone does not. */
+  .table-chat {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(380px, 88vw);
+    z-index: 60;
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform 0.22s ease, visibility 0.22s;
+    box-shadow: -18px 0 44px rgba(0, 0, 0, 0.55);
+  }
+  .table-chat.open {
+    transform: none;
+    visibility: visible;
+  }
+
+  .chat-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(201, 143, 61, 0.45);
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--parchment);
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .chat-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 5, 1, 0.5);
+    z-index: 55;
+  }
+
+  .lobby-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lobby-chat {
+    height: min(58vh, 460px);
+  }
+}
+
+/* Small phones: the table gets tight, so trim the chrome around the cards. */
+@media (max-width: 640px) {
+  .table-topbar {
+    padding: 8px 12px !important;
+    flex-wrap: wrap;
+    row-gap: 2px !important;
+  }
+  /* The stake drops onto its own line rather than squeezing the row until the
+     chat button falls off the right-hand edge. */
+  .topbar-brand {
+    order: 1;
+  }
+  .topbar-meta {
+    order: 2;
+    margin-left: auto;
+  }
+  .topbar-stake {
+    order: 3;
+    flex: 1 0 100%;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+  }
+  .topbar-round {
+    display: none;
+  }
+
+  /* No corner is free on a phone, so the result sits along the bottom edge
+     above the (now empty) hand, still leaving every pile on the table visible. */
+  .round-result {
+    left: 8px !important;
+    right: 8px;
+    bottom: 8px !important;
+    width: auto !important;
+    padding: 10px 12px !important;
+  }
+  .round-result-log {
+    max-height: 72px;
+    overflow-y: auto;
+  }
+  .round-result-note {
+    display: none;
+  }
+  .opponent {
+    min-width: 104px !important;
+    padding: 7px 8px !important;
+  }
+  .standings {
+    width: auto !important;
+    max-width: 44vw;
+    top: 6px !important;
+    right: 6px !important;
+    padding: 7px 9px !important;
+  }
+  .standings-title {
+    font-size: 14px !important;
+  }
+  .your-zone {
+    padding: 8px 10px 14px !important;
+  }
+  .your-hand {
+    gap: 6px !important;
+    min-height: 0 !important;
+  }
+}
+
+@media (max-width: 420px) {
+  /* The tally marks are a nicety; the number is the information. */
+  .tally {
+    display: none;
+  }
+}
+
+/* Touch: no 300ms tap delay, no grey flash, and nothing smaller than a thumb. */
+@media (hover: none) {
+  button,
+  .btn,
+  a {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .btn {
+    min-height: 44px;
+  }
+}
+
+/* Let the layout keep clear of a notch or a home indicator. */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .your-zone {
+    padding-bottom: calc(20px + env(safe-area-inset-bottom)) !important;
+  }
+  .site-header {
+    padding-left: max(clamp(16px, 6vw, 72px), env(safe-area-inset-left));
+    padding-right: max(clamp(16px, 6vw, 72px), env(safe-area-inset-right));
+  }
+}

@@ -1,5 +1,20 @@
 import type { Identity } from './types.js';
 
+/**
+ * A failed request. `code` is the server's stable identifier for what went
+ * wrong, which the UI translates; `message` is the server's own English
+ * sentence, kept as the fallback for anything without a code.
+ */
+export class ApiError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+  }
+}
+
 interface CreateResult {
   game: { id: string; code: string; status: string };
   player: { id: string; name: string; seat: number; isHost: boolean };
@@ -12,7 +27,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? 'Er ging iets mis');
+  if (!res.ok) throw new ApiError(data.error ?? 'Request failed', data.code);
   return data as T;
 }
 
@@ -37,7 +52,7 @@ export async function getGame(code: string): Promise<{
   playerCount: number;
 }> {
   const res = await fetch(`/api/games/${encodeURIComponent(code)}`);
-  if (!res.ok) throw new Error('Spel niet gevonden');
+  if (!res.ok) throw new ApiError('No such game', 'game_not_found');
   return res.json();
 }
 

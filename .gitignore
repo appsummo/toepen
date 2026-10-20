@@ -23,6 +23,8 @@ play-service-account.json
 *.ipa
 *.aab
 *.apk
+# the removed Expo client's working directory, if it is still on a disk here
+mobile/
 
 # logs and OS cruft
 *.log

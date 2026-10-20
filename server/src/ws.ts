@@ -35,14 +35,14 @@ export function attachWebSocket(server: Server): void {
       try {
         msg = JSON.parse(raw.toString());
       } catch {
-        return mgr.sendError(ws, 'Ongeldig bericht');
+        return mgr.sendError(ws, 'Malformed message', 'bad_message');
       }
 
       try {
         // First message must be auth.
         if (msg.type === 'auth') {
           const auth = await authenticate(String(msg.gameId), String(msg.playerId));
-          if (!auth) return mgr.sendError(ws, 'Authenticatie mislukt');
+          if (!auth) return mgr.sendError(ws, 'Authentication failed', 'auth_failed');
           ws.gameId = auth.gameId;
           ws.conn = mgr.register(auth.gameId, String(msg.playerId), ws);
           await repo.setConnected(String(msg.playerId), true);
@@ -51,7 +51,7 @@ export function attachWebSocket(server: Server): void {
           return;
         }
 
-        if (!ws.gameId || !ws.conn) return mgr.sendError(ws, 'Nog niet geauthenticeerd');
+        if (!ws.gameId || !ws.conn) return mgr.sendError(ws, 'Not authenticated yet', 'not_authenticated');
         const gameId = ws.gameId;
         const playerId = ws.conn.playerId;
 
@@ -95,10 +95,10 @@ export function attachWebSocket(server: Server): void {
           case 'nextRound':
             return void (await mgr.handleNextRound(gameId, playerId));
           default:
-            return mgr.sendError(ws, `Onbekend berichttype: ${msg.type}`);
+            return mgr.sendError(ws, `Unknown message type: ${msg.type}`, 'unknown_message');
         }
       } catch (err) {
-        return mgr.sendError(ws, err instanceof Error ? err.message : 'Er ging iets mis');
+        return mgr.sendError(ws, err instanceof Error ? err.message : 'Something went wrong');
       }
     });
 

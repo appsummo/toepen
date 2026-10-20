@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { GameView, ChatMessage, Identity } from '../types.js';
 import { Chat } from '../components/Chat.js';
+import { useT } from '../i18n/index.js';
+import { LanguageToggle } from '../i18n/LanguageToggle.js';
 
 interface Props {
   game: GameView;
@@ -10,6 +12,7 @@ interface Props {
 }
 
 export function Lobby({ game, messages, identity, send }: Props) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const me = game.players.find((p) => p.id === identity.playerId);
   const isHost = game.hostPlayerId === identity.playerId;
@@ -21,7 +24,7 @@ export function Lobby({ game, messages, identity, send }: Props) {
   const copyInvite = async () => {
     const url = `${location.origin}/game/${game.code}`;
     try {
-      await navigator.clipboard.writeText(`Doe je mee met Toepen? ${url} (code: ${game.code})`);
+      await navigator.clipboard.writeText(t('lobby.invite', { url, code: game.code }));
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -30,38 +33,30 @@ export function Lobby({ game, messages, identity, send }: Props) {
   };
 
   return (
-    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 5vw' }}>
+    <div className="page">
+      <header className="site-header" style={{ padding: '18px 5vw' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span className="wordmark" style={{ fontSize: 22 }}>TOEPEN</span>
           <span className="suits" style={{ fontSize: 15 }}>♠♥♣♦</span>
         </div>
+        <LanguageToggle />
       </header>
 
-      <main
-        style={{
-          flex: 1,
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1.6fr) minmax(320px, 1fr)',
-          gap: 24,
-          padding: '0 5vw 3vh',
-          alignItems: 'start',
-        }}
-      >
+      <main className="lobby-grid">
         {/* Left column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div className="parchment" style={{ padding: '1.6rem' }}>
-            <h1 style={{ fontFamily: 'var(--serif)', fontSize: 30, marginBottom: 16 }}>
-              Tafel van {host?.name ?? '…'}
+          <div className="parchment" style={{ padding: 'clamp(1.1rem, 4vw, 1.6rem)' }}>
+            <h1 style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(22px, 6vw, 30px)', marginBottom: 16 }}>
+              {t('lobby.table', { name: host?.name ?? '…' })}
             </h1>
 
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div>
-                <div className="label" style={{ marginBottom: 4 }}>Spelcode</div>
+                <div className="label" style={{ marginBottom: 4 }}>{t('form.code')}</div>
                 <div
                   style={{
                     fontFamily: 'var(--serif)',
-                    fontSize: 34,
+                    fontSize: 'clamp(26px, 8vw, 34px)',
                     fontWeight: 700,
                     letterSpacing: '0.06em',
                     color: 'var(--red)',
@@ -75,16 +70,16 @@ export function Lobby({ game, messages, identity, send }: Props) {
                 </div>
               </div>
               <button className="btn btn-primary" onClick={copyInvite}>
-                {copied ? '✓ Gekopieerd' : 'Kopieer uitnodiging'}
+                {copied ? t('lobby.copied') : t('lobby.copy')}
               </button>
             </div>
           </div>
 
-          <div className="parchment" style={{ padding: '1.4rem' }}>
+          <div className="parchment" style={{ padding: 'clamp(1rem, 4vw, 1.4rem)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h2 style={{ fontFamily: 'var(--serif)', fontSize: 20 }}>Aan tafel</h2>
+              <h2 style={{ fontFamily: 'var(--serif)', fontSize: 20 }}>{t('lobby.seated')}</h2>
               <span className="chip" style={{ background: 'var(--felt)', color: '#fff' }}>
-                {game.players.length} van {capacity}
+                {t('lobby.capacity', { n: game.players.length, cap: capacity })}
               </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -105,6 +100,7 @@ export function Lobby({ game, messages, identity, send }: Props) {
                     style={{
                       width: 38,
                       height: 38,
+                      flexShrink: 0,
                       borderRadius: '50%',
                       background: 'linear-gradient(180deg, var(--gold-bright), var(--gold))',
                       display: 'flex',
@@ -117,31 +113,32 @@ export function Lobby({ game, messages, identity, send }: Props) {
                   >
                     {p.name.charAt(0).toUpperCase()}
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       {p.name}
-                      {p.id === identity.playerId && <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(jij)</span>}
+                      {p.id === identity.playerId && <span style={{ color: 'var(--muted)', fontWeight: 400 }}>{t('lobby.you')}</span>}
                     </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 3 }}>
-                      {p.isHost && <span className="chip" style={{ background: 'var(--red)', color: '#fff', fontSize: 11 }}>Tafelbaas</span>}
-                      {!p.connected && <span className="chip" style={{ background: '#8f8f8f', color: '#fff', fontSize: 11 }}>Weg</span>}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                      {p.isHost && <span className="chip" style={{ background: 'var(--red)', color: '#fff', fontSize: 11 }}>{t('lobby.host')}</span>}
+                      {!p.connected && <span className="chip" style={{ background: '#8f8f8f', color: '#fff', fontSize: 11 }}>{t('lobby.away')}</span>}
                     </div>
                   </div>
                   <span
                     className="chip"
                     style={{
+                      textAlign: 'center',
                       background: p.ready ? 'var(--felt)' : 'transparent',
                       color: p.ready ? '#fff' : 'var(--muted-2)',
                       border: p.ready ? 'none' : '1px solid var(--cream-line)',
                     }}
                   >
-                    {p.ready ? 'Klaar om te spelen' : 'Nog niet klaar'}
+                    {p.ready ? t('lobby.ready') : t('lobby.notready')}
                   </span>
                 </div>
               ))}
               {game.players.length < capacity && (
                 <div style={{ padding: '10px 12px', color: 'var(--muted)', fontStyle: 'italic' }}>
-                  Wachten op speler…
+                  {t('lobby.waiting')}
                 </div>
               )}
             </div>
@@ -156,26 +153,23 @@ export function Lobby({ game, messages, identity, send }: Props) {
                 style={me?.ready ? { color: 'var(--parchment)' } : undefined}
                 onClick={() => send({ type: 'ready', ready: !me?.ready })}
               >
-                {me?.ready ? 'Toch nog niet' : 'Ik ben klaar'}
+                {me?.ready ? t('lobby.unready') : t('lobby.imready')}
               </button>
             )}
             {isHost && (
               <button className="btn btn-primary" style={{ fontSize: 18, padding: '1rem 2.2rem' }} disabled={!canStart} onClick={() => send({ type: 'start' })}>
-                Start het potje
+                {t('lobby.start')}
               </button>
             )}
             <span style={{ color: 'var(--muted)', fontSize: 14 }}>
-              {readyCount}/{game.players.length} klaar
-              {isHost && !canStart && ' · minstens 2 spelers nodig'}
+              {t('lobby.readycount', { n: readyCount, total: game.players.length })}
+              {isHost && !canStart && t('lobby.needtwo')}
             </span>
           </div>
         </div>
 
-        {/* Chat column */}
-        <div
-          className="parchment"
-          style={{ height: 'min(72vh, 640px)', overflow: 'hidden', background: 'linear-gradient(175deg, #31200f, #241505)', border: '1px solid rgba(201,143,61,0.3)' }}
-        >
+        {/* Chat column — below the table on a phone, beside it on a desktop. */}
+        <div className="parchment lobby-chat">
           <Chat messages={messages} viewerId={identity.playerId} onSend={(b) => send({ type: 'chat', body: b })} variant="dark" />
         </div>
       </main>
@@ -184,6 +178,7 @@ export function Lobby({ game, messages, identity, send }: Props) {
 }
 
 function Settings({ game, isHost, send }: { game: GameView; isHost: boolean; send: (m: any) => void }) {
+  const t = useT();
   const update = (patch: Partial<{ targetPoints: number; thinkSeconds: number; dirtyLaundry: boolean }>) => {
     send({
       type: 'settings',
@@ -194,32 +189,32 @@ function Settings({ game, isHost, send }: { game: GameView; isHost: boolean; sen
   };
 
   return (
-    <div className="parchment" style={{ padding: '1.4rem', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-      <SettingBlock label="Speeldoel">
+    <div className="parchment" style={{ padding: 'clamp(1rem, 4vw, 1.4rem)', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+      <SettingBlock label={t('setting.target')}>
         {isHost ? (
           <select className="setting-select" value={game.targetPoints} onChange={(e) => update({ targetPoints: Number(e.target.value) })} style={selectStyle}>
-            {[5, 8, 10, 12, 15].map((n) => <option key={n} value={n}>{n} punten</option>)}
+            {[5, 8, 10, 12, 15].map((n) => <option key={n} value={n}>{t('form.points', { n })}</option>)}
           </select>
         ) : (
-          <strong style={{ fontSize: 18 }}>{game.targetPoints} punten</strong>
+          <strong style={{ fontSize: 18 }}>{t('form.points', { n: game.targetPoints })}</strong>
         )}
       </SettingBlock>
-      <SettingBlock label="Bedenktijd">
+      <SettingBlock label={t('setting.think')}>
         {isHost ? (
           <select value={game.thinkSeconds} onChange={(e) => update({ thinkSeconds: Number(e.target.value) })} style={selectStyle}>
-            {[20, 30, 45, 60].map((n) => <option key={n} value={n}>{n} sec</option>)}
+            {[20, 30, 45, 60].map((n) => <option key={n} value={n}>{t('form.seconds', { n })}</option>)}
           </select>
         ) : (
-          <strong style={{ fontSize: 18 }}>{game.thinkSeconds} sec</strong>
+          <strong style={{ fontSize: 18 }}>{t('form.seconds', { n: game.thinkSeconds })}</strong>
         )}
       </SettingBlock>
-      <SettingBlock label="Vuile was">
+      <SettingBlock label={t('setting.dirty')}>
         {isHost ? (
           <button className="btn" style={{ padding: '6px 16px', background: game.dirtyLaundry ? 'var(--felt)' : 'var(--parchment-3)', color: game.dirtyLaundry ? '#fff' : 'var(--muted-2)', border: '1px solid var(--cream-line)' }} onClick={() => update({ dirtyLaundry: !game.dirtyLaundry })}>
-            {game.dirtyLaundry ? 'Aan' : 'Uit'}
+            {game.dirtyLaundry ? t('generic.on') : t('generic.off')}
           </button>
         ) : (
-          <strong style={{ fontSize: 18 }}>{game.dirtyLaundry ? 'Aan' : 'Uit'}</strong>
+          <strong style={{ fontSize: 18 }}>{game.dirtyLaundry ? t('generic.on') : t('generic.off')}</strong>
         )}
       </SettingBlock>
     </div>
@@ -230,7 +225,7 @@ const selectStyle: React.CSSProperties = {
   padding: '8px 12px',
   borderRadius: 8,
   border: '1px solid var(--cream-line)',
-  fontSize: 15,
+  fontSize: 16, // 16px keeps iOS Safari from zooming the page on focus
   background: '#fff',
 };
 

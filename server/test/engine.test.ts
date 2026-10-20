@@ -376,7 +376,7 @@ test('running out of time plays the weakest legal card', () => {
   assert.ok(state.players.find((p) => p.seat === seat)!.played.some(
     (shown) => cardId(shown.card) === cardId(weakest),
   ));
-  assert.ok(state.log.some((e) => e.kind === 'timeout' && e.seat === seat));
+  assert.ok(state.log.some((e) => e.kind === 'timeout_play' && e.seat === seat));
 });
 
 test('running out of time on a knock folds rather than calling', () => {

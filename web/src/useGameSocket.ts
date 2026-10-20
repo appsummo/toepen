@@ -14,11 +14,17 @@ type Outgoing =
   | { type: 'challengeWas'; target: number | null }
   | { type: 'nextRound' };
 
+/** A server-side refusal: a code to translate, plus the raw fallback. */
+export interface SocketError {
+  code?: string;
+  message: string;
+}
+
 export interface SocketApi {
   game: GameView | null;
   messages: ChatMessage[];
   connected: boolean;
-  error: string | null;
+  error: SocketError | null;
   send: (msg: Outgoing) => void;
   clearError: () => void;
 }
@@ -32,7 +38,7 @@ export function useGameSocket(gameId: string | null, playerId: string | null): S
   const [game, setGame] = useState<GameView | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SocketError | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -54,7 +60,7 @@ export function useGameSocket(gameId: string | null, playerId: string | null): S
         if (msg.type === 'state') setGame(msg.game);
         else if (msg.type === 'chatHistory') setMessages(msg.messages);
         else if (msg.type === 'chat') setMessages((prev) => [...prev, msg.message]);
-        else if (msg.type === 'error') setError(msg.message);
+        else if (msg.type === 'error') setError({ code: msg.code, message: msg.message });
       };
 
       ws.onclose = () => {
